@@ -66,6 +66,7 @@ model User {
   created_at    DateTime   @default(now())
   AuditLog      AuditLog[]    @relation("UserAuditLogs")
   Conversation  Conversation[] @relation("AssignedConversations")
+  Campaign      Campaign[] @relation("CampaignCreatedBy")
 }
 
 model Conversation {
@@ -84,6 +85,7 @@ model Conversation {
   messages         Message[]
   tags             ConversationTag[]
   assigned_user    User?               @relation("AssignedConversations", fields: [assigned_user_id], references: [id])
+  campaign_messages CampaignMessage[]
 
   @@index([status])
   @@index([assigned_user_id])
@@ -199,7 +201,7 @@ model Campaign {
   scheduled_for       DateTime?
   created_at          DateTime           @default(now())
   template            Template           @relation(fields: [template_id], references: [id])
-  created_by_user     User?              @relation(fields: [created_by_user_id], references: [id])
+  created_by_user     User?              @relation("CampaignCreatedBy", fields: [created_by_user_id], references: [id])
   messages            CampaignMessage[]
 
   @@index([status])
