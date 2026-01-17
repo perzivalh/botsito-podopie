@@ -36,6 +36,26 @@ enum MessageType {
   note
 }
 
+enum VerificationMethod {
+  phone
+  ci
+  manual
+}
+
+enum CampaignStatus {
+  draft
+  scheduled
+  sending
+  sent
+  failed
+}
+
+enum CampaignMessageStatus {
+  queued
+  sent
+  failed
+}
+
 model User {
   id            String     @id @default(cuid())
   name          String
@@ -55,6 +75,10 @@ model Conversation {
   display_name     String?
   status           ConversationStatus  @default(open)
   assigned_user_id String?
+  partner_id       Int?
+  patient_id       Int?
+  verified_at      DateTime?
+  verification_method VerificationMethod?
   last_message_at  DateTime?
   created_at       DateTime            @default(now())
   messages         Message[]
@@ -64,6 +88,7 @@ model Conversation {
   @@index([status])
   @@index([assigned_user_id])
   @@index([last_message_at])
+  @@index([partner_id])
 }
 
 model Message {
@@ -109,4 +134,101 @@ model AuditLog {
   data_json Json
   created_at DateTime @default(now())
   user      User?    @relation("UserAuditLogs", fields: [user_id], references: [id])
+}
+
+model Branch {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  name       String
+  address    String
+  lat        Float
+  lng        Float
+  hours_text String
+  phone      String?
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  services   ServiceBranch[]
+}
+
+model Service {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  subtitle     String?
+  description  String
+  price_bob    Int
+  duration_min Int?
+  image_url    String?
+  is_featured  Boolean  @default(false)
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  branches     ServiceBranch[]
+
+  @@index([is_featured])
+}
+
+model ServiceBranch {
+  service_id   String
+  branch_id    String
+  is_available Boolean @default(true)
+  service      Service @relation(fields: [service_id], references: [id])
+  branch       Branch  @relation(fields: [branch_id], references: [id])
+
+  @@id([service_id, branch_id])
+}
+
+model Template {
+  id               String   @id @default(cuid())
+  name             String   @unique
+  language         String
+  category         String?
+  body_preview     String
+  variables_schema Json?
+  is_active        Boolean  @default(true)
+  created_at       DateTime @default(now())
+  campaigns        Campaign[]
+}
+
+model Campaign {
+  id                  String             @id @default(cuid())
+  name                String
+  template_id         String
+  audience_filter     Json
+  status              CampaignStatus     @default(draft)
+  created_by_user_id  String?
+  scheduled_for       DateTime?
+  created_at          DateTime           @default(now())
+  template            Template           @relation(fields: [template_id], references: [id])
+  created_by_user     User?              @relation(fields: [created_by_user_id], references: [id])
+  messages            CampaignMessage[]
+
+  @@index([status])
+}
+
+model CampaignMessage {
+  id               String               @id @default(cuid())
+  campaign_id      String
+  conversation_id  String?
+  wa_id            String
+  phone_e164       String
+  status           CampaignMessageStatus @default(queued)
+  error_json       Json?
+  sent_at          DateTime?
+  campaign         Campaign             @relation(fields: [campaign_id], references: [id])
+  conversation     Conversation?        @relation(fields: [conversation_id], references: [id])
+
+  @@index([campaign_id])
+  @@index([status])
+}
+
+model Prospect {
+  id           String   @id @default(cuid())
+  wa_id        String   @unique
+  phone_e164   String
+  display_name String?
+  ci_digits    String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([created_at])
 }

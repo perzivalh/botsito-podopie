@@ -1,12 +1,18 @@
-const { sendText, sendList, sendLocation } = require("./whatsapp");
+const { sendText, sendList, sendLocation, sendButtons, sendImage } = require("./whatsapp");
+const prisma = require("./db");
 const {
+  normalizeCI,
+  normalizePhone,
   findPatientByPhone,
   findPartnerByPhone,
   findPatientByCI,
+  findPartnerByCI,
   getPosOrdersWithLines,
   getLastPosOrders,
-} = require("./odoo");
+  getPatientIdFromPartner,
+} = require("./services/odooClient");
 const sessionStore = require("./sessionStore");
+const { updateConversationByWaId } = require("./services/conversations");
 
 const STATES = {
   MAIN_MENU: "MAIN_MENU",
@@ -20,6 +26,8 @@ const ACTIONS = {
   INFO_HOURS: "INFO_HOURS",
   PATIENT_ENTRY: "PATIENT_ENTRY",
   HANDOFF: "HANDOFF",
+  SERVICE_BRANCHES: "SERVICE_BRANCHES",
+  SERVICE_MENU: "SERVICE_MENU",
   PATIENT_PAYMENTS: "PATIENT_PAYMENTS",
   PATIENT_POS_LAST: "PATIENT_POS_LAST",
   PATIENT_MY_DATA: "PATIENT_MY_DATA",
@@ -39,27 +47,27 @@ const MAIN_MENU = {
       rows: [
         {
           id: ACTIONS.INFO_PRICES,
-          title: "Precios/servicios",
+          title: "💬 Precios/servicios",
           description: "💬 Consultar precios/servicios",
         },
         {
           id: ACTIONS.INFO_LOCATION,
-          title: "Ubicación",
+          title: "📍 Ubicación",
           description: "📍 Ubicación y sucursales",
         },
         {
           id: ACTIONS.INFO_HOURS,
-          title: "Horarios",
+          title: "⏰ Horarios",
           description: "⏰ Horarios",
         },
         {
           id: ACTIONS.PATIENT_ENTRY,
-          title: "Soy paciente",
+          title: "👤 Soy paciente",
           description: "👤 Soy paciente (ver pagos / historial)",
         },
         {
           id: ACTIONS.HANDOFF,
-          title: "Recepción",
+          title: "🧑‍💼 Recepción",
           description: "🧑‍💼 Hablar con recepción",
         },
       ],
@@ -88,18 +96,13 @@ const PATIENT_MENU = {
   ],
 };
 
-const HOURS_TEXT =
-  "Horarios de atencion:\nLunes a Viernes 09:00 a 19:00\nSabados 09:00 a 13:00";
-const LOCATION_TEXT = "Estamos en Podopie. Te comparto la ubicacion.";
-const PRICES_TEXT =
+const SERVICES_BODY = "Servicios destacados:";
+const BRANCH_LIST_BODY = "Selecciona una sucursal:";
+const BRANCH_HOURS_BODY = "Selecciona una sucursal para ver horarios:";
+const PRICES_FALLBACK =
   "Para precios y servicios, contanos que tratamiento te interesa y te respondemos a la brevedad.";
 
-const LOCATION = {
-  latitude: process.env.LOCATION_LAT,
-  longitude: process.env.LOCATION_LNG,
-  name: process.env.LOCATION_NAME || "Podopie",
-  address: process.env.LOCATION_ADDRESS || "Direccion pendiente",
-};
+const MAX_LIST_TITLE = 24;
 
 function normalizeText(text) {
   return (text || "")
@@ -110,24 +113,15 @@ function normalizeText(text) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-function onlyDigits(text) {
-  return (text || "").replace(/\D+/g, "");
-}
-
-function normalizePhones(waId) {
-  const digits = onlyDigits(waId);
-  if (!digits) {
-    return [];
+function truncateTitle(value) {
+  const text = (value || "").toString().trim();
+  if (!text) {
+    return "";
   }
-  const variants = new Set();
-  variants.add(`+${digits}`);
-  variants.add(digits);
-  if (digits.length >= 8) {
-    const short = digits.slice(-8);
-    variants.add(short);
-    variants.add(`0${short}`);
+  if (text.length <= MAX_LIST_TITLE) {
+    return text;
   }
-  return Array.from(variants);
+  return `${text.slice(0, MAX_LIST_TITLE - 3)}...`;
 }
 
 function mergeVariants(...lists) {
@@ -221,6 +215,50 @@ function extractOrderId(value) {
   return null;
 }
 
+function formatServiceMessage(service) {
+  const lines = [];
+  lines.push(service.name);
+  if (service.subtitle) {
+    lines.push(service.subtitle);
+  }
+  lines.push(`Precio: Bs ${service.price_bob}`);
+  if (service.duration_min) {
+    lines.push(`Duración: ${service.duration_min} min`);
+  }
+  if (service.description) {
+    lines.push(service.description);
+  }
+  return lines.join("\n");
+}
+
+function buildMapsLink(branch) {
+  if (branch.lat === null || branch.lng === null) {
+    return null;
+  }
+  return `https://maps.google.com/?q=${branch.lat},${branch.lng}`;
+}
+
+async function upsertProspect(waId, ciDigits) {
+  if (!waId) {
+    return;
+  }
+  try {
+    await prisma.prospect.upsert({
+      where: { wa_id: waId },
+      update: {
+        ci_digits: ciDigits || undefined,
+      },
+      create: {
+        wa_id: waId,
+        phone_e164: waId,
+        ci_digits: ciDigits || null,
+      },
+    });
+  } catch (error) {
+    console.error("Prospect upsert error", error?.message || error);
+  }
+}
+
 async function sendMainMenu(waId) {
   await sessionStore.updateSession(waId, { state: STATES.MAIN_MENU });
   await sendList(
@@ -245,37 +283,204 @@ async function sendPatientMenu(waId) {
   );
 }
 
+async function sendServicesList(waId) {
+  let services = await prisma.service.findMany({
+    where: { is_active: true, is_featured: true },
+    orderBy: { name: "asc" },
+    take: 10,
+  });
+  if (!services.length) {
+    services = await prisma.service.findMany({
+      where: { is_active: true },
+      orderBy: { name: "asc" },
+      take: 10,
+    });
+  }
+  if (!services.length) {
+    await sendText(waId, PRICES_FALLBACK);
+    await sendMainMenu(waId);
+    return;
+  }
+
+  const rows = services.map((service) => ({
+    id: `service:${service.id}`,
+    title: truncateTitle(service.name),
+    description: `${service.subtitle ? `${service.subtitle} · ` : ""}Bs ${service.price_bob}`,
+  }));
+
+  await sendList(waId, "Servicios", SERVICES_BODY, null, "Ver servicios", [
+    {
+      title: "Destacados",
+      rows,
+    },
+  ]);
+}
+
+async function sendServiceDetail(waId, serviceId) {
+  const service = await prisma.service.findUnique({ where: { id: serviceId } });
+  if (!service || !service.is_active) {
+    await sendText(waId, "Ese servicio no está disponible.");
+    await sendMainMenu(waId);
+    return;
+  }
+
+  if (service.image_url) {
+    await sendImage(waId, service.image_url, service.name);
+  }
+  await sendText(waId, formatServiceMessage(service));
+  await sendButtons(waId, "¿Qué deseas hacer?", [
+    { id: ACTIONS.SERVICE_BRANCHES, title: "📍 Ver sucursales" },
+    { id: ACTIONS.HANDOFF, title: "🧑‍💼 Recepción" },
+    { id: ACTIONS.MAIN_MENU, title: "⬅ Menú" },
+  ]);
+}
+
+async function sendBranchList(waId, mode) {
+  const branches = await prisma.branch.findMany({
+    where: { is_active: true },
+    orderBy: { name: "asc" },
+  });
+  if (!branches.length) {
+    await sendText(waId, "No hay sucursales disponibles.");
+    await sendMainMenu(waId);
+    return;
+  }
+
+  const rows = branches.map((branch) => ({
+    id: `branch:${mode}:${branch.id}`,
+    title: truncateTitle(branch.name),
+    description: branch.address,
+  }));
+
+  const body = mode === "hours" ? BRANCH_HOURS_BODY : BRANCH_LIST_BODY;
+  await sendList(waId, "Sucursales", body, null, "Ver sucursales", [
+    {
+      title: "Sucursales",
+      rows,
+    },
+  ]);
+}
+
+async function sendBranchLocation(waId, branchId) {
+  const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+  if (!branch) {
+    await sendText(waId, "Sucursal no encontrada.");
+    await sendMainMenu(waId);
+    return;
+  }
+  await sendLocation(waId, branch.lat, branch.lng, branch.name, branch.address);
+  const lines = [branch.name, branch.address];
+  if (branch.phone) {
+    lines.push(`Tel: ${branch.phone}`);
+  }
+  const mapsLink = buildMapsLink(branch);
+  if (mapsLink) {
+    lines.push(mapsLink);
+  }
+  await sendText(waId, lines.join("\n"));
+  await sendMainMenu(waId);
+}
+
+async function sendBranchHours(waId, branchId) {
+  const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+  if (!branch) {
+    await sendText(waId, "Sucursal no encontrada.");
+    await sendMainMenu(waId);
+    return;
+  }
+  await sendText(waId, `${branch.name}\n${branch.hours_text}`);
+  await sendMainMenu(waId);
+}
+
+async function recordVerification(waId, partnerId, patientId, method) {
+  try {
+    await updateConversationByWaId(waId, {
+      partner_id: partnerId ?? null,
+      patient_id: patientId ?? null,
+      verified_at: new Date(),
+      verification_method: method || null,
+    });
+  } catch (error) {
+    console.error("Conversation verification update error", error?.message || error);
+  }
+}
+
 async function linkByPhone(waId) {
-  const variants = normalizePhones(waId);
+  const variants = normalizePhone(waId);
   const patientMatch = await findPatientByPhone(variants);
   if (patientMatch) {
-    const record = patientMatch.record;
-    let partnerId = extractPartnerId(record);
+    let partnerId = extractPartnerId(patientMatch);
     if (!partnerId) {
       const partnerMatch = await findPartnerByPhone(variants);
       if (partnerMatch) {
-        partnerId = partnerMatch.record.id;
+        partnerId = partnerMatch.id;
       }
     }
     return {
-      patientId: record.id,
+      patientId: patientMatch.id,
       partnerId,
-      name: record.name,
-      phone: record.phone,
-      mobile: record.mobile,
-      vat: record.vat,
+      name: patientMatch.name,
+      phone: patientMatch.phone,
+      mobile: patientMatch.mobile,
+      vat: patientMatch.vat,
     };
   }
 
   const partnerMatch = await findPartnerByPhone(variants);
   if (partnerMatch) {
-    const record = partnerMatch.record;
+    const patientId = await getPatientIdFromPartner(partnerMatch.id);
     return {
-      partnerId: record.id,
-      name: record.name,
-      phone: record.phone,
-      mobile: record.mobile,
-      vat: record.vat,
+      partnerId: partnerMatch.id,
+      patientId,
+      name: partnerMatch.name,
+      phone: partnerMatch.phone,
+      mobile: partnerMatch.mobile,
+      vat: partnerMatch.vat,
+    };
+  }
+
+  return null;
+}
+
+async function resolveByCI(ciRaw, waId) {
+  const ci = normalizeCI(ciRaw);
+  if (!ci) {
+    return null;
+  }
+  const patientMatch = await findPatientByCI(ci);
+  if (patientMatch) {
+    let partnerId = extractPartnerId(patientMatch);
+    if (!partnerId) {
+      const variants = mergeVariants(
+        normalizePhone(patientMatch.phone),
+        normalizePhone(patientMatch.mobile),
+        normalizePhone(waId)
+      );
+      const partnerMatch = await findPartnerByPhone(variants);
+      if (partnerMatch) {
+        partnerId = partnerMatch.id;
+      }
+    }
+    return {
+      patientId: patientMatch.id,
+      partnerId,
+      name: patientMatch.name,
+      phone: patientMatch.phone,
+      mobile: patientMatch.mobile,
+      vat: patientMatch.vat,
+    };
+  }
+
+  const partnerMatch = await findPartnerByCI(ci);
+  if (partnerMatch) {
+    const patientId = await getPatientIdFromPartner(partnerMatch.id);
+    return {
+      partnerId: partnerMatch.id,
+      patientId,
+      name: partnerMatch.name,
+      phone: partnerMatch.phone,
+      mobile: partnerMatch.mobile,
+      vat: partnerMatch.vat,
     };
   }
 
@@ -396,7 +601,7 @@ async function handleAskCi(waId, session, text) {
     return null;
   }
 
-  const ci = onlyDigits(text);
+  const ci = normalizeCI(text);
   if (!ci) {
     await sendText(
       waId,
@@ -405,9 +610,9 @@ async function handleAskCi(waId, session, text) {
     return session;
   }
 
-  let match = null;
+  let resolved = null;
   try {
-    match = await findPatientByCI(ci);
+    resolved = await resolveByCI(ci, waId);
   } catch (error) {
     console.error("Odoo CI lookup error", error?.message || error);
     await sendText(
@@ -416,7 +621,8 @@ async function handleAskCi(waId, session, text) {
     );
     return session;
   }
-  if (!match) {
+  if (!resolved) {
+    await upsertProspect(waId, ci);
     await sendText(
       waId,
       "No encontre ese CI. Queres intentar de nuevo? Escribe tu CI o responde 'SALIR'."
@@ -424,43 +630,19 @@ async function handleAskCi(waId, session, text) {
     return session;
   }
 
-  const record = match.record;
-  let partnerId =
-    match.model === "medical.patient" ? extractPartnerId(record) : record.id;
-  const patientId = match.model === "medical.patient" ? record.id : null;
-  if (match.model === "medical.patient" && !partnerId) {
-    try {
-      const variants = mergeVariants(
-        normalizePhones(waId),
-        normalizePhones(record.phone),
-        normalizePhones(record.mobile)
-      );
-      const partnerMatch = await findPartnerByPhone(variants);
-      if (partnerMatch) {
-        partnerId = partnerMatch.record.id;
-      }
-    } catch (error) {
-      console.error("Odoo partner lookup error", error?.message || error);
-    }
-  }
-
   const next = await sessionStore.updateSession(waId, {
     state: STATES.PATIENT_MENU,
     data: {
-      partnerId,
-      patientId,
-      name: record.name,
-      phone: record.phone,
-      mobile: record.mobile,
-      vat: record.vat,
+      partnerId: resolved.partnerId,
+      patientId: resolved.patientId,
+      name: resolved.name,
+      phone: resolved.phone,
+      mobile: resolved.mobile,
+      vat: resolved.vat,
       lastAction: "IDENTIFIED_BY_CI",
     },
   });
-  console.log(
-    `[FLOW] wa_id=${waId} linked_by=ci patient=${patientId || "n/a"} partner=${
-      partnerId || "n/a"
-    }`
-  );
+  await recordVerification(waId, resolved.partnerId, resolved.patientId, "ci");
   await sendPatientMenu(waId);
   return next;
 }
@@ -487,14 +669,11 @@ async function ensureLinkedForPatient(waId, session) {
       state: STATES.PATIENT_MENU,
       data: { ...data, lastAction: "IDENTIFIED_BY_PHONE" },
     });
-    console.log(
-      `[FLOW] wa_id=${waId} linked_by=phone patient=${
-        data.patientId || "n/a"
-      } partner=${data.partnerId || "n/a"}`
-    );
+    await recordVerification(waId, data.partnerId, data.patientId, "phone");
     return next;
   }
 
+  await upsertProspect(waId, null);
   const next = await sessionStore.updateSession(waId, { state: STATES.ASK_CI });
   await sendText(
     waId,
@@ -620,27 +799,17 @@ async function handlePatientAction(waId, actionId, session) {
 
 async function handleInfoAction(waId, actionId) {
   if (actionId === ACTIONS.INFO_PRICES) {
-    await sendText(waId, PRICES_TEXT);
-    await sendMainMenu(waId);
+    await sendServicesList(waId);
     return;
   }
 
   if (actionId === ACTIONS.INFO_LOCATION) {
-    await sendText(waId, LOCATION_TEXT);
-    await sendLocation(
-      waId,
-      LOCATION.latitude,
-      LOCATION.longitude,
-      LOCATION.name,
-      LOCATION.address
-    );
-    await sendMainMenu(waId);
+    await sendBranchList(waId, "location");
     return;
   }
 
   if (actionId === ACTIONS.INFO_HOURS) {
-    await sendText(waId, HOURS_TEXT);
-    await sendMainMenu(waId);
+    await sendBranchList(waId, "hours");
     return;
   }
 
@@ -753,8 +922,13 @@ async function handleInteractive(waId, selectionId) {
   }
   const session = await sessionStore.getSession(waId);
 
-  if (selectionId === ACTIONS.MAIN_MENU) {
+  if (selectionId === ACTIONS.MAIN_MENU || selectionId === ACTIONS.SERVICE_MENU) {
     await sendMainMenu(waId);
+    return;
+  }
+
+  if (selectionId === ACTIONS.SERVICE_BRANCHES) {
+    await sendBranchList(waId, "location");
     return;
   }
 
@@ -785,13 +959,27 @@ async function handleInteractive(waId, selectionId) {
     return;
   }
 
+  if (selectionId.startsWith("service:")) {
+    await sendServiceDetail(waId, selectionId.split(":")[1]);
+    return;
+  }
+
+  if (selectionId.startsWith("branch:location:")) {
+    await sendBranchLocation(waId, selectionId.split(":")[2]);
+    return;
+  }
+
+  if (selectionId.startsWith("branch:hours:")) {
+    await sendBranchHours(waId, selectionId.split(":")[2]);
+    return;
+  }
+
   await sendMainMenu(waId);
 }
 
 module.exports = {
   handleIncomingText,
   handleInteractive,
-  normalizePhones,
   STATES,
   ACTIONS,
 };

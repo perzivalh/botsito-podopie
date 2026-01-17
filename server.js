@@ -2,12 +2,13 @@ require("dotenv").config();
 
 const http = require("http");
 const crypto = require("crypto");
+const axios = require("axios");
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const { Server } = require("socket.io");
 
-const { parseInteractiveSelection, sendText } = require("./src/whatsapp");
+const { parseInteractiveSelection, sendText, sendTemplate } = require("./src/whatsapp");
 const { handleIncomingText, handleInteractive } = require("./src/flows");
 const sessionStore = require("./src/sessionStore");
 const prisma = require("./src/db");
@@ -29,15 +30,18 @@ const {
   getConversationById,
   formatConversation,
   CONVERSATION_SELECT,
+  logAudit,
 } = require("./src/services/conversations");
-const { hasOdooConfig, getSessionInfo } = require("./src/odoo");
+const { hasOdooConfig, getSessionInfo } = require("./src/services/odooClient");
 
-const { VERIFY_TOKEN, ADMIN_PHONE_E164 } = process.env;
+const { VERIFY_TOKEN, ADMIN_PHONE_E164, WHATSAPP_BUSINESS_ACCOUNT_ID } = process.env;
 const PORT = process.env.PORT || 3000;
 const FRONTEND_ORIGIN =
   process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 const WHATSAPP_APP_SECRET = process.env.WHATSAPP_APP_SECRET || "";
 const ALLOWED_STATUS = new Set(["open", "pending", "closed"]);
+const CAMPAIGN_BATCH_SIZE = Number(process.env.CAMPAIGN_BATCH_SIZE || 8);
+const CAMPAIGN_INTERVAL_MS = Number(process.env.CAMPAIGN_INTERVAL_MS || 1500);
 
 const app = express();
 app.use(
@@ -103,9 +107,24 @@ async function ensureSettings() {
 
 ensureSettings();
 
+let settingsCache = null;
+let settingsCacheAt = 0;
+const SETTINGS_CACHE_MS = 10 * 1000;
+
+async function getSettingsCached() {
+  const now = Date.now();
+  if (settingsCache && now - settingsCacheAt < SETTINGS_CACHE_MS) {
+    return settingsCache;
+  }
+  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+  settingsCache = settings || { bot_enabled: true, auto_reply_enabled: true };
+  settingsCacheAt = now;
+  return settingsCache;
+}
+
 if (!hasOdooConfig()) {
   logger.warn("odoo.config_missing", {
-    message: "Set ODOO_URL, ODOO_DB, ODOO_USER, ODOO_PASS",
+    message: "Set ODOO_BASE_URL/ODOO_URL, ODOO_DB, ODOO_USERNAME/ODOO_USER, ODOO_PASSWORD/ODOO_PASS",
   });
 } else {
   const sessionInfo = getSessionInfo();
@@ -356,6 +375,11 @@ app.post("/webhook", (req, res) => {
             });
             continue;
           }
+        }
+
+        const settings = await getSettingsCached();
+        if (settings && (!settings.bot_enabled || !settings.auto_reply_enabled)) {
+          continue;
         }
 
         if (conversation.status === "pending") {
@@ -642,6 +666,768 @@ app.post("/api/conversations/:id/messages", requireAuth, async (req, res) => {
     meta: { source: "panel", by_user_id: req.user.id },
   });
   return res.json({ ok: true });
+});
+
+function buildConversationFilter(filter) {
+  const where = {};
+  if (!filter || typeof filter !== "object") {
+    return where;
+  }
+  if (filter.status) {
+    where.status = filter.status;
+  }
+  if (filter.assigned_user_id) {
+    if (filter.assigned_user_id === "unassigned") {
+      where.assigned_user_id = null;
+    } else {
+      where.assigned_user_id = filter.assigned_user_id;
+    }
+  }
+  if (filter.tag) {
+    where.tags = {
+      some: {
+        tag: {
+          name: filter.tag,
+        },
+      },
+    };
+  }
+  if (Array.isArray(filter.tags) && filter.tags.length) {
+    where.tags = {
+      some: {
+        tag: {
+          name: { in: filter.tags },
+        },
+      },
+    };
+  }
+  if (filter.verified_only) {
+    where.verified_at = { not: null };
+  }
+  return where;
+}
+
+function extractTemplatePreview(template) {
+  const components = template.components || [];
+  const body = components.find((item) => item.type === "BODY");
+  if (body?.text) {
+    return body.text;
+  }
+  return template.name || "Template";
+}
+
+async function syncTemplatesFromWhatsApp() {
+  if (!WHATSAPP_BUSINESS_ACCOUNT_ID) {
+    throw new Error("missing_waba_id");
+  }
+  const token = process.env.WHATSAPP_TOKEN;
+  if (!token) {
+    throw new Error("missing_whatsapp_token");
+  }
+  const url = `https://graph.facebook.com/v22.0/${WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates?limit=200`;
+  const response = await axios.get(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const templates = response.data?.data || [];
+  for (const template of templates) {
+    await prisma.template.upsert({
+      where: { name: template.name },
+      update: {
+        language: template.language,
+        category: template.category || null,
+        body_preview: extractTemplatePreview(template),
+        variables_schema: template.components || null,
+        is_active: template.status === "APPROVED",
+      },
+      create: {
+        name: template.name,
+        language: template.language,
+        category: template.category || null,
+        body_preview: extractTemplatePreview(template),
+        variables_schema: template.components || null,
+        is_active: template.status === "APPROVED",
+      },
+    });
+  }
+  return templates.length;
+}
+
+async function queueCampaignMessages(campaign, userId) {
+  const where = buildConversationFilter(campaign.audience_filter);
+  const conversations = await prisma.conversation.findMany({
+    where,
+    select: {
+      id: true,
+      wa_id: true,
+      phone_e164: true,
+    },
+  });
+  if (!conversations.length) {
+    return 0;
+  }
+
+  await prisma.campaignMessage.deleteMany({
+    where: { campaign_id: campaign.id },
+  });
+
+  await prisma.campaignMessage.createMany({
+    data: conversations.map((conversation) => ({
+      campaign_id: campaign.id,
+      conversation_id: conversation.id,
+      wa_id: conversation.wa_id,
+      phone_e164: conversation.phone_e164,
+      status: "queued",
+    })),
+  });
+
+  await logAudit({
+    userId,
+    action: "campaign.queued",
+    data: { campaign_id: campaign.id, total: conversations.length },
+  });
+
+  return conversations.length;
+}
+
+async function refreshCampaignStatus(campaignId) {
+  const remaining = await prisma.campaignMessage.count({
+    where: { campaign_id: campaignId, status: "queued" },
+  });
+  if (remaining > 0) {
+    return;
+  }
+  const failed = await prisma.campaignMessage.count({
+    where: { campaign_id: campaignId, status: "failed" },
+  });
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { status: failed > 0 ? "failed" : "sent" },
+  });
+}
+
+async function processCampaignQueue() {
+  const due = await prisma.campaign.findMany({
+    where: {
+      status: "scheduled",
+      scheduled_for: { lte: new Date() },
+    },
+  });
+  for (const campaign of due) {
+    const queued = await queueCampaignMessages(campaign, campaign.created_by_user_id);
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { status: queued > 0 ? "sending" : "failed" },
+    });
+  }
+
+  const queuedMessages = await prisma.campaignMessage.findMany({
+    where: {
+      status: "queued",
+      campaign: { status: "sending" },
+    },
+    include: {
+      campaign: { include: { template: true } },
+    },
+    take: CAMPAIGN_BATCH_SIZE,
+  });
+
+  if (!queuedMessages.length) {
+    return;
+  }
+
+  const processedCampaigns = new Set();
+  for (const message of queuedMessages) {
+    const template = message.campaign.template;
+    const result = await sendTemplate(
+      message.wa_id,
+      template.name,
+      template.language,
+      []
+    );
+    if (result.ok) {
+      await prisma.campaignMessage.update({
+        where: { id: message.id },
+        data: { status: "sent", sent_at: new Date(), error_json: null },
+      });
+    } else {
+      await prisma.campaignMessage.update({
+        where: { id: message.id },
+        data: { status: "failed", error_json: result.error || {} },
+      });
+    }
+    processedCampaigns.add(message.campaign_id);
+  }
+
+  for (const campaignId of processedCampaigns) {
+    await refreshCampaignStatus(campaignId);
+  }
+}
+
+setInterval(() => {
+  void processCampaignQueue();
+}, CAMPAIGN_INTERVAL_MS);
+
+app.get(
+  "/api/admin/users",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res) => {
+    const users = await prisma.user.findMany({
+      orderBy: { created_at: "desc" },
+    });
+    return res.json({ users });
+  }
+);
+
+app.post(
+  "/api/admin/users",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res) => {
+    const name = (req.body?.name || "").trim();
+    const email = (req.body?.email || "").toLowerCase().trim();
+    const role = req.body?.role || "recepcion";
+    const password = req.body?.password || "";
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        role,
+        password_hash: passwordHash,
+        is_active: true,
+      },
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "user.created",
+      data: { user_id: user.id, email },
+    });
+    return res.json({ user });
+  }
+);
+
+app.patch(
+  "/api/admin/users/:id",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res) => {
+    const updates = {};
+    if (req.body?.name) {
+      updates.name = req.body.name.trim();
+    }
+    if (req.body?.role) {
+      updates.role = req.body.role;
+    }
+    if (req.body?.is_active !== undefined) {
+      updates.is_active = Boolean(req.body.is_active);
+    }
+    if (req.body?.password) {
+      updates.password_hash = await bcrypt.hash(req.body.password, 10);
+    }
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: updates,
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "user.updated",
+      data: { user_id: user.id, updates: Object.keys(updates) },
+    });
+    return res.json({ user });
+  }
+);
+
+app.get(
+  "/api/admin/settings",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res) => {
+    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+    return res.json({ settings });
+  }
+);
+
+app.patch(
+  "/api/admin/settings",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res) => {
+    const settings = await prisma.settings.update({
+      where: { id: 1 },
+      data: {
+        bot_enabled: req.body?.bot_enabled,
+        auto_reply_enabled: req.body?.auto_reply_enabled,
+      },
+    });
+    settingsCache = settings;
+    settingsCacheAt = Date.now();
+    await logAudit({
+      userId: req.user.id,
+      action: "settings.updated",
+      data: {
+        bot_enabled: settings.bot_enabled,
+        auto_reply_enabled: settings.auto_reply_enabled,
+      },
+    });
+    return res.json({ settings });
+  }
+);
+
+app.get(
+  "/api/admin/branches",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const branches = await prisma.branch.findMany({
+      orderBy: { name: "asc" },
+    });
+    return res.json({ branches });
+  }
+);
+
+app.post(
+  "/api/admin/branches",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const data = {
+      code: (req.body?.code || "").trim(),
+      name: (req.body?.name || "").trim(),
+      address: (req.body?.address || "").trim(),
+      lat: Number(req.body?.lat || 0),
+      lng: Number(req.body?.lng || 0),
+      hours_text: (req.body?.hours_text || "").trim(),
+      phone: req.body?.phone || null,
+      is_active: req.body?.is_active !== false,
+    };
+    if (!data.code || !data.name || !data.address) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    const branch = await prisma.branch.create({ data });
+    await logAudit({
+      userId: req.user.id,
+      action: "branch.created",
+      data: { branch_id: branch.id },
+    });
+    return res.json({ branch });
+  }
+);
+
+app.patch(
+  "/api/admin/branches/:id",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const branch = await prisma.branch.update({
+      where: { id: req.params.id },
+      data: {
+        code: req.body?.code,
+        name: req.body?.name,
+        address: req.body?.address,
+        lat: req.body?.lat !== undefined ? Number(req.body.lat) : undefined,
+        lng: req.body?.lng !== undefined ? Number(req.body.lng) : undefined,
+        hours_text: req.body?.hours_text,
+        phone: req.body?.phone,
+        is_active: req.body?.is_active,
+      },
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "branch.updated",
+      data: { branch_id: branch.id },
+    });
+    return res.json({ branch });
+  }
+);
+
+app.delete(
+  "/api/admin/branches/:id",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const branch = await prisma.branch.update({
+      where: { id: req.params.id },
+      data: { is_active: false },
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "branch.disabled",
+      data: { branch_id: branch.id },
+    });
+    return res.json({ branch });
+  }
+);
+
+app.get(
+  "/api/admin/services",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const services = await prisma.service.findMany({
+      include: {
+        branches: {
+          include: {
+            branch: true,
+          },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+    return res.json({ services });
+  }
+);
+
+app.post(
+  "/api/admin/services",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const data = {
+      code: (req.body?.code || "").trim(),
+      name: (req.body?.name || "").trim(),
+      subtitle: req.body?.subtitle || null,
+      description: (req.body?.description || "").trim(),
+      price_bob: Number(req.body?.price_bob || 0),
+      duration_min: req.body?.duration_min ? Number(req.body.duration_min) : null,
+      image_url: req.body?.image_url || null,
+      is_featured: Boolean(req.body?.is_featured),
+      is_active: req.body?.is_active !== false,
+    };
+    if (!data.code || !data.name || !data.description) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    const service = await prisma.service.create({ data });
+    await logAudit({
+      userId: req.user.id,
+      action: "service.created",
+      data: { service_id: service.id },
+    });
+    return res.json({ service });
+  }
+);
+
+app.patch(
+  "/api/admin/services/:id",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const service = await prisma.service.update({
+      where: { id: req.params.id },
+      data: {
+        code: req.body?.code,
+        name: req.body?.name,
+        subtitle: req.body?.subtitle,
+        description: req.body?.description,
+        price_bob: req.body?.price_bob ? Number(req.body.price_bob) : undefined,
+        duration_min:
+          req.body?.duration_min !== undefined
+            ? Number(req.body.duration_min)
+            : undefined,
+        image_url: req.body?.image_url,
+        is_featured: req.body?.is_featured,
+        is_active: req.body?.is_active,
+      },
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "service.updated",
+      data: { service_id: service.id },
+    });
+    return res.json({ service });
+  }
+);
+
+app.delete(
+  "/api/admin/services/:id",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const service = await prisma.service.update({
+      where: { id: req.params.id },
+      data: { is_active: false },
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "service.disabled",
+      data: { service_id: service.id },
+    });
+    return res.json({ service });
+  }
+);
+
+app.post(
+  "/api/admin/services/:id/branches",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const branchId = req.body?.branch_id;
+    const isAvailable = req.body?.is_available !== false;
+    if (!branchId) {
+      return res.status(400).json({ error: "missing_branch" });
+    }
+    const mapping = await prisma.serviceBranch.upsert({
+      where: {
+        service_id_branch_id: {
+          service_id: req.params.id,
+          branch_id: branchId,
+        },
+      },
+      update: {
+        is_available: isAvailable,
+      },
+      create: {
+        service_id: req.params.id,
+        branch_id: branchId,
+        is_available: isAvailable,
+      },
+    });
+    return res.json({ mapping });
+  }
+);
+
+app.get(
+  "/api/admin/templates",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const templates = await prisma.template.findMany({
+      orderBy: { name: "asc" },
+    });
+    return res.json({ templates });
+  }
+);
+
+app.post(
+  "/api/admin/templates",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const template = await prisma.template.create({
+      data: {
+        name: req.body?.name,
+        language: req.body?.language || "es",
+        category: req.body?.category || null,
+        body_preview: req.body?.body_preview || "",
+        variables_schema: req.body?.variables_schema || null,
+        is_active: req.body?.is_active !== false,
+      },
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "template.created",
+      data: { template_id: template.id },
+    });
+    return res.json({ template });
+  }
+);
+
+app.patch(
+  "/api/admin/templates/:id",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const template = await prisma.template.update({
+      where: { id: req.params.id },
+      data: {
+        name: req.body?.name,
+        language: req.body?.language,
+        category: req.body?.category,
+        body_preview: req.body?.body_preview,
+        variables_schema: req.body?.variables_schema,
+        is_active: req.body?.is_active,
+      },
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "template.updated",
+      data: { template_id: template.id },
+    });
+    return res.json({ template });
+  }
+);
+
+app.post(
+  "/api/admin/templates/sync",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    try {
+      const count = await syncTemplatesFromWhatsApp();
+      await logAudit({
+        userId: req.user.id,
+        action: "template.synced",
+        data: { count },
+      });
+      return res.json({ synced: count });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || "sync_failed" });
+    }
+  }
+);
+
+app.get(
+  "/api/admin/campaigns",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const campaigns = await prisma.campaign.findMany({
+      include: { template: true },
+      orderBy: { created_at: "desc" },
+    });
+    return res.json({ campaigns });
+  }
+);
+
+app.post(
+  "/api/admin/campaigns",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const name = (req.body?.name || "").trim();
+    const templateId = req.body?.template_id;
+    const audienceFilter = req.body?.audience_filter || {};
+    const scheduledFor = req.body?.scheduled_for
+      ? new Date(req.body.scheduled_for)
+      : null;
+    if (!name || !templateId) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    const campaign = await prisma.campaign.create({
+      data: {
+        name,
+        template_id: templateId,
+        audience_filter: audienceFilter,
+        status: scheduledFor ? "scheduled" : "draft",
+        created_by_user_id: req.user.id,
+        scheduled_for: scheduledFor,
+      },
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "campaign.created",
+      data: { campaign_id: campaign.id },
+    });
+    return res.json({ campaign });
+  }
+);
+
+app.post(
+  "/api/admin/campaigns/:id/send",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!campaign) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    const queued = await queueCampaignMessages(campaign, req.user.id);
+    const status = queued > 0 ? "sending" : "failed";
+    const updated = await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { status },
+    });
+    await logAudit({
+      userId: req.user.id,
+      action: "campaign.sending",
+      data: { campaign_id: campaign.id, queued },
+    });
+    return res.json({ campaign: updated, queued });
+  }
+);
+
+app.get(
+  "/api/admin/campaigns/:id/messages",
+  requireAuth,
+  requireRole(["admin", "marketing"]),
+  async (req, res) => {
+    const messages = await prisma.campaignMessage.findMany({
+      where: { campaign_id: req.params.id },
+      orderBy: { sent_at: "desc" },
+      take: 500,
+    });
+    return res.json({ messages });
+  }
+);
+
+app.get(
+  "/api/admin/audit",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 200, 500);
+    const action = req.query.action;
+    const where = action ? { action } : undefined;
+    const logs = await prisma.auditLog.findMany({
+      where,
+      orderBy: { created_at: "desc" },
+      take: limit,
+    });
+    return res.json({ logs });
+  }
+);
+
+app.get("/api/dashboard/metrics", requireAuth, async (req, res) => {
+  const statusCounts = await prisma.conversation.groupBy({
+    by: ["status"],
+    _count: { status: true },
+  });
+
+  const messageVolume = await prisma.$queryRaw`
+    SELECT DATE("created_at") AS day,
+      SUM(CASE WHEN direction = 'in' THEN 1 ELSE 0 END) AS in_count,
+      SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END) AS out_count
+    FROM "Message"
+    GROUP BY DATE("created_at")
+    ORDER BY day DESC
+    LIMIT 30
+  `;
+
+  const topTags = await prisma.$queryRaw`
+    SELECT t.name, COUNT(*)::int AS count
+    FROM "ConversationTag" ct
+    JOIN "Tag" t ON t.id = ct.tag_id
+    GROUP BY t.name
+    ORDER BY count DESC
+    LIMIT 10
+  `;
+
+  const avgFirstReply = await prisma.$queryRaw`
+    WITH pending AS (
+      SELECT (data_json->>'conversation_id') AS conversation_id,
+             MIN(created_at) AS pending_at
+      FROM "AuditLog"
+      WHERE action = 'conversation.status_changed'
+        AND data_json->>'to' = 'pending'
+      GROUP BY data_json->>'conversation_id'
+    ),
+    first_reply AS (
+      SELECT m.conversation_id,
+             MIN(m.created_at) AS reply_at
+      FROM "Message" m
+      JOIN pending p ON p.conversation_id = m.conversation_id
+      WHERE m.direction = 'out'
+        AND (m.raw_json->'meta'->>'source') = 'panel'
+        AND m.created_at >= p.pending_at
+      GROUP BY m.conversation_id
+    )
+    SELECT AVG(EXTRACT(EPOCH FROM (f.reply_at - p.pending_at))) AS avg_seconds
+    FROM pending p
+    JOIN first_reply f ON f.conversation_id = p.conversation_id
+  `;
+
+  return res.json({
+    status_counts: statusCounts,
+    message_volume: messageVolume,
+    top_tags: topTags,
+    avg_first_reply_seconds:
+      avgFirstReply?.[0]?.avg_seconds || null,
+  });
 });
 
 app.use((err, req, res, next) => {

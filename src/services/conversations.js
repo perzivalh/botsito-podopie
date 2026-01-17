@@ -8,6 +8,10 @@ const CONVERSATION_SELECT = {
   display_name: true,
   status: true,
   assigned_user_id: true,
+  partner_id: true,
+  patient_id: true,
+  verified_at: true,
+  verification_method: true,
   last_message_at: true,
   created_at: true,
   assigned_user: {
@@ -250,15 +254,50 @@ async function getConversationById(conversationId) {
   return formatConversation(conversation);
 }
 
+async function updateConversationVerification({
+  conversationId,
+  partnerId,
+  patientId,
+  method,
+}) {
+  const updated = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: {
+      partner_id: partnerId ?? null,
+      patient_id: patientId ?? null,
+      verified_at: new Date(),
+      verification_method: method || null,
+    },
+    select: CONVERSATION_SELECT,
+  });
+  const formatted = formatConversation(updated);
+  emitEvent("conversation:update", { conversation: formatted });
+  return formatted;
+}
+
+async function updateConversationByWaId(waId, data) {
+  const updated = await prisma.conversation.update({
+    where: { wa_id: waId },
+    data,
+    select: CONVERSATION_SELECT,
+  });
+  const formatted = formatConversation(updated);
+  emitEvent("conversation:update", { conversation: formatted });
+  return formatted;
+}
+
 module.exports = {
   upsertConversation,
   createMessage,
   setConversationStatus,
   assignConversation,
+  logAudit,
   ensureTagByName,
   addTagToConversation,
   removeTagFromConversation,
   getConversationById,
+  updateConversationVerification,
+  updateConversationByWaId,
   formatConversation,
   CONVERSATION_SELECT,
 };

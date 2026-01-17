@@ -18,13 +18,17 @@ Podopie OS incluye el webhook de WhatsApp Cloud API integrado a Odoo y una bande
 - `VERIFY_TOKEN`
 - `WHATSAPP_APP_SECRET` (opcional, valida firma webhook)
 - `ADMIN_PHONE_E164` (opcional, comandos BOT/CERRAR por WhatsApp)
+- `WHATSAPP_BUSINESS_ACCOUNT_ID` (para sincronizar templates)
 
 ### Odoo JSON-RPC
 
-- `ODOO_URL` (ej: `https://podopie.ngrok.io`)
+- `ODOO_BASE_URL` (ej: `https://podopie.ngrok.io`)
 - `ODOO_DB`
-- `ODOO_USER`
-- `ODOO_PASS`
+- `ODOO_USERNAME`
+- `ODOO_PASSWORD`
+
+Compatibilidad (legacy):
+- `ODOO_URL`, `ODOO_USER`, `ODOO_PASS`
 
 ### Base de datos / Auth
 
@@ -46,6 +50,8 @@ Podopie OS incluye el webhook de WhatsApp Cloud API integrado a Odoo y una bande
 - `NODE_ENV` (por defecto `production`)
 - `SQLITE_PATH` (si queres persistir sesiones en SQLite)
 - `LOCATION_LAT`, `LOCATION_LNG`, `LOCATION_NAME`, `LOCATION_ADDRESS` (para enviar ubicacion)
+- `CAMPAIGN_BATCH_SIZE` (default 8)
+- `CAMPAIGN_INTERVAL_MS` (default 1500)
 
 ## Instalar y correr
 
@@ -83,17 +89,28 @@ npm run dev
 - `POST /api/conversations/:id/status` => open/pending/closed
 - `POST /api/conversations/:id/assign` => asignar al usuario actual
 - `POST /api/conversations/:id/tags` => add/remove tags
+- `GET /api/dashboard/metrics` => cards + tablas SLA
+- `GET /api/admin/users` / `POST /api/admin/users` / `PATCH /api/admin/users/:id`
+- `GET /api/admin/settings` / `PATCH /api/admin/settings`
+- `GET /api/admin/branches` / `POST /api/admin/branches` / `PATCH /api/admin/branches/:id` / `DELETE /api/admin/branches/:id`
+- `GET /api/admin/services` / `POST /api/admin/services` / `PATCH /api/admin/services/:id` / `DELETE /api/admin/services/:id`
+- `POST /api/admin/services/:id/branches` => relacion servicio/sucursal
+- `GET /api/admin/templates` / `POST /api/admin/templates` / `PATCH /api/admin/templates/:id`
+- `POST /api/admin/templates/sync` => sync WhatsApp templates
+- `GET /api/admin/campaigns` / `POST /api/admin/campaigns` / `POST /api/admin/campaigns/:id/send`
+- `GET /api/admin/campaigns/:id/messages`
+- `GET /api/admin/audit`
 
 ## Flujo del bot
 
-- Identifica por telefono en Odoo.
-- Si no identifica, pide CI (solo numeros).
-- Menu principal con:
-  - Pagos pendientes
-  - Ultimas compras POS
-  - Mis datos
-  - Ubicacion
+- Siempre muestra menu principal al inicio y cuando escriben `menu`/`inicio`/`volver`.
+- Menu principal:
+  - Consultar precios/servicios
+  - Ubicacion y sucursales
   - Horarios
+  - Soy paciente (ver pagos / historial)
+  - Hablar con recepcion
+- Verificacion por telefono/CI solo se dispara en "Soy paciente".
 - Comandos: `menu` vuelve al menu, `salir` borra la sesion.
 - Handoff: `asesor`/`recepcion`/`humano` => status `pending` + tag `pendiente_atencion`.
 - Admin por WhatsApp (si `ADMIN_PHONE_E164` coincide):
@@ -113,6 +130,9 @@ Para prod:
 npx prisma migrate deploy
 npm run seed:admin
 ```
+
+Seed incluye catalogo base (sucursales + servicios).
+Se registra Prospect si el paciente no existe en Odoo.
 
 ## Railway deploy
 

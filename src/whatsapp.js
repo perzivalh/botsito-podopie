@@ -206,6 +206,50 @@ async function sendLocation(
   return result;
 }
 
+async function sendImage(to, imageUrl, caption = null, options = {}) {
+  if (!imageUrl) {
+    return sendText(to, "Imagen no disponible por ahora.");
+  }
+  const payload = {
+    messaging_product: "whatsapp",
+    to,
+    type: "image",
+    image: {
+      link: imageUrl,
+      caption: caption || undefined,
+    },
+  };
+  const result = await sendWhatsAppMessage(payload);
+  await recordOutgoingMessage(to, "image", caption || null, {
+    payload,
+    response: result.response,
+    error: result.error,
+    meta: options.meta,
+  });
+  return result;
+}
+
+async function sendTemplate(to, name, language, components = [], options = {}) {
+  const payload = {
+    messaging_product: "whatsapp",
+    to,
+    type: "template",
+    template: {
+      name,
+      language: { code: language },
+      components,
+    },
+  };
+  const result = await sendWhatsAppMessage(payload);
+  await recordOutgoingMessage(to, "template", name, {
+    payload,
+    response: result.response,
+    error: result.error,
+    meta: options.meta,
+  });
+  return result;
+}
+
 function parseInteractiveSelection(message) {
   if (message.type !== "interactive") {
     return null;
@@ -232,6 +276,8 @@ module.exports = {
   sendButtons,
   sendList,
   sendLocation,
+  sendImage,
+  sendTemplate,
   parseInteractiveSelection,
   sendInteractiveList: sendList,
 };
