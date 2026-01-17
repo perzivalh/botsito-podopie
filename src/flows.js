@@ -37,14 +37,31 @@ const MAIN_MENU = {
     {
       title: "Opciones",
       rows: [
-        { id: ACTIONS.INFO_PRICES, title: "💬 Consultar precios/servicios" },
-        { id: ACTIONS.INFO_LOCATION, title: "📍 Ubicación y sucursales" },
-        { id: ACTIONS.INFO_HOURS, title: "⏰ Horarios" },
+        {
+          id: ACTIONS.INFO_PRICES,
+          title: "Precios/servicios",
+          description: "💬 Consultar precios/servicios",
+        },
+        {
+          id: ACTIONS.INFO_LOCATION,
+          title: "Ubicación",
+          description: "📍 Ubicación y sucursales",
+        },
+        {
+          id: ACTIONS.INFO_HOURS,
+          title: "Horarios",
+          description: "⏰ Horarios",
+        },
         {
           id: ACTIONS.PATIENT_ENTRY,
-          title: "👤 Soy paciente (ver pagos / historial)",
+          title: "Soy paciente",
+          description: "👤 Soy paciente (ver pagos / historial)",
         },
-        { id: ACTIONS.HANDOFF, title: "🧑‍💼 Hablar con recepción" },
+        {
+          id: ACTIONS.HANDOFF,
+          title: "Recepción",
+          description: "🧑‍💼 Hablar con recepción",
+        },
       ],
     },
   ],
@@ -634,6 +651,41 @@ function isMenuTrigger(normalized) {
   return ["menu", "inicio", "volver"].includes(normalized);
 }
 
+function parseMainMenuSelection(normalized) {
+  if (normalized === "1" || normalized.includes("precio") || normalized.includes("servicio")) {
+    return ACTIONS.INFO_PRICES;
+  }
+  if (normalized === "2" || normalized.includes("ubicacion") || normalized.includes("sucursal")) {
+    return ACTIONS.INFO_LOCATION;
+  }
+  if (normalized === "3" || normalized.includes("horario")) {
+    return ACTIONS.INFO_HOURS;
+  }
+  if (normalized === "4" || normalized.includes("soy paciente") || normalized === "paciente") {
+    return ACTIONS.PATIENT_ENTRY;
+  }
+  if (normalized === "5") {
+    return ACTIONS.HANDOFF;
+  }
+  return null;
+}
+
+function parsePatientSelection(normalized) {
+  if (normalized === "1" || normalized.includes("pago")) {
+    return ACTIONS.PATIENT_PAYMENTS;
+  }
+  if (normalized === "2" || normalized.includes("compra")) {
+    return ACTIONS.PATIENT_POS_LAST;
+  }
+  if (normalized === "3" || normalized.includes("dato")) {
+    return ACTIONS.PATIENT_MY_DATA;
+  }
+  if (normalized === "menu" || normalized.includes("menu")) {
+    return ACTIONS.MAIN_MENU;
+  }
+  return null;
+}
+
 async function handleIncomingText(waId, text) {
   const normalized = normalizeText(text);
   const session = await sessionStore.getSession(waId);
@@ -651,6 +703,44 @@ async function handleIncomingText(waId, text) {
 
   if (session.state === STATES.ASK_CI) {
     await handleAskCi(waId, session, text);
+    return;
+  }
+
+  if (session.state === STATES.PATIENT_MENU) {
+    const selection = parsePatientSelection(normalized);
+    if (selection === ACTIONS.MAIN_MENU) {
+      await sendMainMenu(waId);
+      return;
+    }
+    if (
+      selection === ACTIONS.PATIENT_PAYMENTS ||
+      selection === ACTIONS.PATIENT_POS_LAST ||
+      selection === ACTIONS.PATIENT_MY_DATA
+    ) {
+      await handlePatientAction(waId, selection, session);
+      return;
+    }
+  }
+
+  const mainSelection = parseMainMenuSelection(normalized);
+  if (mainSelection === ACTIONS.INFO_PRICES) {
+    await handleInfoAction(waId, ACTIONS.INFO_PRICES);
+    return;
+  }
+  if (mainSelection === ACTIONS.INFO_LOCATION) {
+    await handleInfoAction(waId, ACTIONS.INFO_LOCATION);
+    return;
+  }
+  if (mainSelection === ACTIONS.INFO_HOURS) {
+    await handleInfoAction(waId, ACTIONS.INFO_HOURS);
+    return;
+  }
+  if (mainSelection === ACTIONS.PATIENT_ENTRY) {
+    const linked = await ensureLinkedForPatient(waId, session);
+    if (linked.state === STATES.ASK_CI) {
+      return;
+    }
+    await sendPatientMenu(waId);
     return;
   }
 
@@ -694,6 +784,8 @@ async function handleInteractive(waId, selectionId) {
     await handlePatientAction(waId, selectionId, session);
     return;
   }
+
+  await sendMainMenu(waId);
 }
 
 module.exports = {

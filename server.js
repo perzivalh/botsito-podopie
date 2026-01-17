@@ -223,6 +223,9 @@ function isHandoffRequest(normalized, rawText) {
     return false;
   }
   const text = normalized || normalizeText(rawText);
+  if (text === "5") {
+    return true;
+  }
   return (
     text.includes("asesor") ||
     text.includes("recepcion") ||
