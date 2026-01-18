@@ -1384,12 +1384,17 @@ app.get(
 );
 
 app.get("/api/dashboard/metrics", requireAuth, async (req, res) => {
-  const statusCounts = await prisma.conversation.groupBy({
+  const statusCountsRaw = await prisma.conversation.groupBy({
     by: ["status"],
     _count: { status: true },
   });
 
-  const messageVolume = await prisma.$queryRaw`
+  const statusCounts = statusCountsRaw.map((item) => ({
+    ...item,
+    _count: { status: Number(item._count.status) },
+  }));
+
+  const messageVolumeRaw = await prisma.$queryRaw`
     SELECT DATE("created_at") AS day,
       SUM(CASE WHEN direction = 'in' THEN 1 ELSE 0 END) AS in_count,
       SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END) AS out_count
@@ -1399,7 +1404,13 @@ app.get("/api/dashboard/metrics", requireAuth, async (req, res) => {
     LIMIT 30
   `;
 
-  const topTags = await prisma.$queryRaw`
+  const messageVolume = (messageVolumeRaw || []).map((row) => ({
+    ...row,
+    in_count: Number(row.in_count || 0),
+    out_count: Number(row.out_count || 0),
+  }));
+
+  const topTagsRaw = await prisma.$queryRaw`
     SELECT t.name, COUNT(*)::int AS count
     FROM "ConversationTag" ct
     JOIN "Tag" t ON t.id = ct.tag_id
@@ -1408,7 +1419,12 @@ app.get("/api/dashboard/metrics", requireAuth, async (req, res) => {
     LIMIT 10
   `;
 
-  const avgFirstReply = await prisma.$queryRaw`
+  const topTags = (topTagsRaw || []).map((row) => ({
+    ...row,
+    count: Number(row.count || 0),
+  }));
+
+  const avgFirstReplyRaw = await prisma.$queryRaw`
     WITH pending AS (
       SELECT (data_json->>'conversation_id') AS conversation_id,
              MIN(created_at) AS pending_at
@@ -1432,12 +1448,16 @@ app.get("/api/dashboard/metrics", requireAuth, async (req, res) => {
     JOIN first_reply f ON f.conversation_id = p.conversation_id
   `;
 
+  const avgFirstReplySeconds = avgFirstReplyRaw?.[0]?.avg_seconds;
+
   return res.json({
     status_counts: statusCounts,
     message_volume: messageVolume,
     top_tags: topTags,
     avg_first_reply_seconds:
-      avgFirstReply?.[0]?.avg_seconds || null,
+      avgFirstReplySeconds !== null && avgFirstReplySeconds !== undefined
+        ? Number(avgFirstReplySeconds)
+        : null,
   });
 });
 
