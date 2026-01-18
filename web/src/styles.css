@@ -1,3 +1,10 @@
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 :root {
   --bg: #f1f5fb;
   --bg-soft: #eef3fb;
@@ -41,7 +48,6 @@ body {
   font-family: "Sora", sans-serif;
   color: var(--ink);
   background: radial-gradient(circle at top, #f8fbff 0%, #f1f5fb 45%, #e9eff8 100%);
-  min-height: 100vh;
 }
 
 body[data-theme="dark"] {
@@ -183,7 +189,8 @@ textarea {
 .app-shell {
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -195,6 +202,7 @@ textarea {
   flex-direction: column;
   align-items: center;
   gap: 1rem;
+  height: 100%;
   position: relative;
 }
 
@@ -352,24 +360,33 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .content-chats {
   padding: 1.5rem;
   gap: 1.5rem;
+  height: 100%;
 }
 
 .content-page {
   gap: 1.5rem;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .chat-shell {
   flex: 1;
   display: grid;
-  grid-template-columns: 330px minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 1.5rem;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .chat-list-panel {
@@ -381,6 +398,7 @@ textarea {
   flex-direction: column;
   gap: 1rem;
   min-height: 0;
+  height: 100%;
   box-shadow: 0 12px 26px var(--shadow);
   animation: fadeUp 0.5s ease both;
 }
@@ -458,8 +476,11 @@ textarea {
   flex-direction: column;
   gap: 0.6rem;
   overflow-y: auto;
-  padding-right: 0.2rem;
+  min-height: 0;
   flex: 1;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  padding-right: 0.2rem;
 }
 
 .conversation-item {
@@ -600,9 +621,10 @@ body[data-theme="dark"] .status-pill.closed {
 
 .chat-view {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   gap: 1.5rem;
   min-height: 0;
+  height: 100%;
 }
 
 .chat-view.info-closed {
@@ -615,6 +637,9 @@ body[data-theme="dark"] .status-pill.closed {
 
 .chat-main {
   min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-card {
@@ -625,6 +650,7 @@ body[data-theme="dark"] .status-pill.closed {
   flex-direction: column;
   min-height: 0;
   height: 100%;
+  flex: 1;
   overflow: hidden;
   box-shadow: 0 12px 26px var(--shadow);
   animation: fadeUp 0.5s ease both;
@@ -644,6 +670,16 @@ body[data-theme="dark"] .status-pill.closed {
   display: flex;
   align-items: center;
   gap: 0.8rem;
+}
+
+.back-button {
+  border: 1px solid var(--border);
+  background: var(--panel-muted);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  display: none;
 }
 
 .chat-avatar {
@@ -711,6 +747,8 @@ body[data-theme="dark"] .chat-avatar {
   flex-direction: column;
   gap: 0.8rem;
   overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .day-pill {
@@ -784,6 +822,18 @@ body[data-theme="dark"] .chat-encryption {
   background: #0d1526;
 }
 
+.new-message-banner {
+  align-self: center;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  box-shadow: 0 8px 18px var(--shadow);
+  font-size: 0.8rem;
+  margin: 0 0 0.6rem;
+}
+
 .chat-composer {
   padding: 1rem 1.2rem 1.2rem;
   border-top: 1px solid var(--border);
@@ -854,6 +904,10 @@ body[data-theme="dark"] .chat-encryption {
   flex-direction: column;
   gap: 1rem;
   min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
   animation: fadeUp 0.5s ease both;
 }
 
@@ -998,6 +1052,7 @@ body[data-theme="dark"] .info-avatar {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-height: 0;
 }
 
 .page-header {
@@ -1197,6 +1252,19 @@ body[data-theme="dark"] .info-avatar {
 
   .chat-view {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .chat-info {
+    display: none;
+  }
+
+  .chat-view.info-open {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 0.9fr);
+  }
+
+  .chat-view.info-open .chat-info {
+    display: flex;
   }
 }
 
@@ -1213,5 +1281,17 @@ body[data-theme="dark"] .info-avatar {
   .rail-logo {
     width: 40px;
     height: 40px;
+  }
+
+  .chat-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-shell.has-active .chat-list-panel {
+    display: none;
+  }
+
+  .back-button {
+    display: inline-flex;
   }
 }

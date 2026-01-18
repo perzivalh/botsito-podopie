@@ -263,9 +263,14 @@ function App() {
     () => localStorage.getItem("theme") || "light"
   );
   const [showFilters, setShowFilters] = useState(false);
-  const [isInfoOpen, setIsInfoOpen] = useState(true);
+  const [isInfoOpen, setIsInfoOpen] = useState(
+    () => (typeof window !== "undefined" ? window.innerWidth >= 1024 : true)
+  );
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [hasUnread, setHasUnread] = useState(false);
   const messageInputRef = useRef(null);
+  const chatBodyRef = useRef(null);
   const [adminTab, setAdminTab] = useState("users");
 
   const [filters, setFilters] = useState({
@@ -377,6 +382,25 @@ function App() {
       setShowFilters(true);
     }
   }, [filters.status, filters.assigned_user_id, filters.tag]);
+
+  useEffect(() => {
+    setHasUnread(false);
+    setIsAtBottom(true);
+    requestAnimationFrame(() => {
+      scrollChatToBottom();
+    });
+  }, [activeConversation?.id]);
+
+  useEffect(() => {
+    if (!activeConversation) {
+      return;
+    }
+    if (isAtBottom) {
+      scrollChatToBottom();
+    } else {
+      setHasUnread(true);
+    }
+  }, [messages, activeConversation?.id, isAtBottom]);
 
   useEffect(() => {
     if (!token) {
@@ -568,6 +592,34 @@ function App() {
 
   function toggleTheme() {
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
+  }
+
+  function scrollChatToBottom() {
+    const el = chatBodyRef.current;
+    if (!el) {
+      return;
+    }
+    el.scrollTop = el.scrollHeight;
+    setIsAtBottom(true);
+    setHasUnread(false);
+  }
+
+  function handleChatScroll() {
+    const el = chatBodyRef.current;
+    if (!el) {
+      return;
+    }
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = distance < 24;
+    setIsAtBottom(atBottom);
+    if (atBottom) {
+      setHasUnread(false);
+    }
+  }
+
+  function handleBackToList() {
+    setActiveConversation(null);
+    setMessages([]);
   }
 
   function handleQuickAction(text) {
@@ -1134,7 +1186,9 @@ function App() {
         className={`content ${view === "chats" ? "content-chats" : "content-page"}`}
       >
         {view === "chats" && (
-          <section className="chat-shell">
+          <section
+            className={`chat-shell ${activeConversation ? "has-active" : ""}`}
+          >
             <aside className="chat-list-panel">
               <div className="chat-list-header">
                 <div>
@@ -1286,6 +1340,15 @@ function App() {
                 <div className="chat-card">
                   <header className="chat-topbar">
                     <div className="chat-title">
+                      {activeConversation && (
+                        <button
+                          className="back-button"
+                          type="button"
+                          onClick={handleBackToList}
+                        >
+                          Chats
+                        </button>
+                      )}
                       <div className="chat-avatar">
                         <span>{getInitial(activeName)}</span>
                       </div>
@@ -1326,7 +1389,11 @@ function App() {
                     </div>
                   </header>
 
-                  <div className="chat-body">
+                  <div
+                    className="chat-body"
+                    ref={chatBodyRef}
+                    onScroll={handleChatScroll}
+                  >
                     {loadingConversation && (
                       <div className="empty">Cargando...</div>
                     )}
@@ -1358,6 +1425,16 @@ function App() {
                       </>
                     )}
                   </div>
+
+                  {hasUnread && (
+                    <button
+                      className="new-message-banner"
+                      type="button"
+                      onClick={scrollChatToBottom}
+                    >
+                      Nuevos mensajes
+                    </button>
+                  )}
 
                   <form className="chat-composer" onSubmit={handleSendMessage}>
                     <div className="quick-actions">
