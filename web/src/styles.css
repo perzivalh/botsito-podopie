@@ -20,6 +20,9 @@ body,
   --success: #2db776;
   --border: #e2e8f0;
   --shadow: rgba(20, 33, 61, 0.12);
+  --scroll-thumb: rgba(30, 58, 138, 0.35);
+  --scroll-thumb-hover: rgba(30, 58, 138, 0.55);
+  --scroll-track: transparent;
 }
 
 body[data-theme="dark"] {
@@ -37,10 +40,35 @@ body[data-theme="dark"] {
   --success: #34d399;
   --border: #1e293b;
   --shadow: rgba(15, 23, 42, 0.5);
+  --scroll-thumb: rgba(148, 163, 184, 0.4);
+  --scroll-thumb-hover: rgba(148, 163, 184, 0.6);
+  --scroll-track: transparent;
 }
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scroll-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scroll-thumb-hover);
 }
 
 body {
@@ -483,7 +511,7 @@ textarea {
 .conversation-list {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0;
   overflow-y: auto;
   min-height: 0;
   flex: 1;
@@ -493,26 +521,30 @@ textarea {
 }
 
 .conversation-item {
-  border: 1px solid transparent;
-  border-radius: 16px;
-  padding: 0.75rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  padding: 0.85rem 0.6rem;
   background: transparent;
   display: flex;
   gap: 0.8rem;
   text-align: left;
   transition: background 0.2s ease, border-color 0.2s ease;
-  animation: fadeUp 0.4s ease both;
+  animation: none;
 }
 
 .conversation-item:hover {
   background: var(--accent-soft-2);
-  border-color: var(--accent-soft);
 }
 
 .conversation-item.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-soft);
-  box-shadow: 0 10px 20px var(--shadow);
+  background: var(--accent-soft-2);
+  border-left-color: var(--accent);
+}
+
+.conversation-item:last-child {
+  border-bottom: none;
 }
 
 .avatar {
@@ -554,6 +586,13 @@ textarea {
   align-items: center;
 }
 
+.conversation-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 .conversation-name {
   font-weight: 600;
   font-size: 0.95rem;
@@ -566,6 +605,20 @@ textarea {
   font-size: 0.75rem;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.conversation-unread {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.35rem;
 }
 
 .conversation-preview {
@@ -584,10 +637,6 @@ textarea {
   color: var(--muted);
 }
 
-.assignee {
-  font-size: 0.75rem;
-}
-
 .status-pill {
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
@@ -596,6 +645,12 @@ textarea {
   font-weight: 600;
   text-transform: uppercase;
   font-size: 0.65rem;
+}
+
+.status-pill.tag-pill {
+  background: #e9eff8;
+  color: var(--accent);
+  text-transform: none;
 }
 
 .status-pill.open {
@@ -626,6 +681,11 @@ body[data-theme="dark"] .status-pill.pending {
 body[data-theme="dark"] .status-pill.closed {
   background: rgba(248, 113, 113, 0.2);
   color: #fecaca;
+}
+
+body[data-theme="dark"] .status-pill.tag-pill {
+  background: rgba(96, 165, 250, 0.18);
+  color: #bfdbfe;
 }
 
 .chat-view {

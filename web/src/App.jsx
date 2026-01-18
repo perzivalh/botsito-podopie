@@ -37,11 +37,56 @@ function formatListTime(value) {
     return "-";
   }
   const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  if (sameDay) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((today - target) / 86400000);
+  if (diffDays === 0) {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
-  return date.toLocaleDateString();
+  if (diffDays === 1) {
+    return "Ayer";
+  }
+  const dayNames = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
+  return dayNames[date.getDay()];
+}
+
+function formatMessageDayLabel(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((today - target) / 86400000);
+  if (diffDays === 0) {
+    return "Hoy";
+  }
+  if (diffDays === 1) {
+    return "Ayer";
+  }
+  const months = [
+    "Ene",
+    "Feb",
+    "Mar",
+    "Abr",
+    "May",
+    "Jun",
+    "Jul",
+    "Ago",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dic",
+  ];
+  const label = `${date.getDate()} ${months[date.getMonth()]}`;
+  if (date.getFullYear() !== now.getFullYear()) {
+    return `${label} ${date.getFullYear()}`;
+  }
+  return label;
 }
 
 function formatDuration(seconds) {
@@ -1114,6 +1159,34 @@ function App() {
       enabled: canSeeAdmin,
     },
   ];
+  const messageBlocks = [];
+  let lastDayKey = "";
+  messages.forEach((message) => {
+    const createdAt = message.created_at;
+    const date = createdAt ? new Date(createdAt) : null;
+    const dayKey = date && !Number.isNaN(date.getTime())
+      ? `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+      : "";
+    if (dayKey && dayKey !== lastDayKey) {
+      messageBlocks.push(
+        <div className="day-pill" key={`day-${dayKey}`}>
+          {formatMessageDayLabel(createdAt)}
+        </div>
+      );
+      lastDayKey = dayKey;
+    }
+    messageBlocks.push(
+      <div
+        key={message.id}
+        className={`message ${message.direction} ${
+          message.type === "note" ? "note" : ""
+        }`}
+      >
+        <div className="message-text">{message.text || `[${message.type}]`}</div>
+        <div className="message-meta">{formatDate(message.created_at)}</div>
+      </div>
+    );
+  });
 
   return (
     <div className="app-shell">
@@ -1303,6 +1376,15 @@ function App() {
                     conversation.last_message_text ||
                     conversation.last_message ||
                     "Sin mensajes";
+                  const unreadCount = Number(
+                    conversation.unread_count ||
+                      conversation.unread_messages ||
+                      conversation.unread ||
+                      0
+                  );
+                  const topTag = conversation.tags?.[0]?.name || "";
+                  const statusLabel =
+                    statusLabels[conversation.status] || conversation.status;
                   return (
                     <button
                       key={conversation.id}
@@ -1317,18 +1399,25 @@ function App() {
                       <div className="conversation-body">
                         <div className="conversation-row">
                           <span className="conversation-name">{displayName}</span>
-                          <span className="conversation-time">
-                            {formatListTime(conversation.last_message_at)}
-                          </span>
+                          <div className="conversation-right">
+                            <span className="conversation-time">
+                              {formatListTime(conversation.last_message_at)}
+                            </span>
+                            {unreadCount > 0 && (
+                              <span className="conversation-unread">
+                                {unreadCount}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="conversation-preview">{preview}</div>
                         <div className="conversation-meta">
                           <span className={`status-pill ${conversation.status}`}>
-                            {statusLabels[conversation.status] || conversation.status}
+                            {statusLabel}
                           </span>
-                          <span className="assignee">
-                            {conversation.assigned_user?.name || "Sin asignar"}
-                          </span>
+                          {topTag && (
+                            <span className="status-pill tag-pill">{topTag}</span>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -1406,23 +1495,11 @@ function App() {
                     )}
                     {!loadingConversation && activeConversation && (
                       <>
-                        <div className="day-pill">Hoy</div>
-                        {messages.map((message) => {
-                          const typeClass = message.type === "note" ? "note" : "";
-                          return (
-                            <div
-                              key={message.id}
-                              className={`message ${message.direction} ${typeClass}`}
-                            >
-                              <div className="message-text">
-                                {message.text || `[${message.type}]`}
-                              </div>
-                              <div className="message-meta">
-                                {formatDate(message.created_at)}
-                              </div>
-                            </div>
-                          );
-                        })}
+                        {messageBlocks.length ? (
+                          messageBlocks
+                        ) : (
+                          <div className="empty-state">Sin mensajes</div>
+                        )}
                         <div className="chat-encryption">
                           Los mensajes estan cifrados de extremo a extremo.
                         </div>
