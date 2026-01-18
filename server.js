@@ -44,6 +44,7 @@ const CAMPAIGN_BATCH_SIZE = Number(process.env.CAMPAIGN_BATCH_SIZE || 8);
 const CAMPAIGN_INTERVAL_MS = Number(process.env.CAMPAIGN_INTERVAL_MS || 1500);
 
 const app = express();
+app.set("trust proxy", 1);
 app.use(
   cors({
     origin: FRONTEND_ORIGIN,

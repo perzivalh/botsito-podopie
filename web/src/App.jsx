@@ -778,6 +778,11 @@ function App() {
     }
   }
 
+  const statusCounts = { open: 0, pending: 0, closed: 0 };
+  (metrics?.status_counts || []).forEach((item) => {
+    statusCounts[item.status] = item._count.status;
+  });
+
   if (!token || !user) {
     return (
       <div className="login-shell">
@@ -824,14 +829,6 @@ function App() {
   const canSeeAdmin = hasRole(user, ["admin", "marketing"]);
   const canAdminSettings = hasRole(user, ["admin"]);
   const canManageStatus = hasRole(user, ["admin", "recepcion"]);
-
-  const statusCounts = useMemo(() => {
-    const map = { open: 0, pending: 0, closed: 0 };
-    (metrics?.status_counts || []).forEach((item) => {
-      map[item.status] = item._count.status;
-    });
-    return map;
-  }, [metrics]);
 
   return (
     <div className="app-shell">
