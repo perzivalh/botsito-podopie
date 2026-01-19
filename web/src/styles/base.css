@@ -1,0 +1,211 @@
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+:root {
+  --bg: #f1f5fb;
+  --bg-soft: #eef3fb;
+  --panel: #ffffff;
+  --panel-muted: #f6f8fc;
+  --ink: #1c2b4a;
+  --muted: #7b889d;
+  --accent: #1e3a8a;
+  --accent-strong: #162c6e;
+  --accent-soft: #dbe7ff;
+  --accent-soft-2: #eef4ff;
+  --danger: #e25555;
+  --success: #2db776;
+  --border: #e2e8f0;
+  --shadow: rgba(20, 33, 61, 0.12);
+  --scroll-thumb: rgba(30, 58, 138, 0.35);
+  --scroll-thumb-hover: rgba(30, 58, 138, 0.55);
+  --scroll-track: transparent;
+}
+
+body[data-theme="dark"] {
+  --bg: #0f172a;
+  --bg-soft: #0b1324;
+  --panel: #111827;
+  --panel-muted: #0d1526;
+  --ink: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #60a5fa;
+  --accent-strong: #3b82f6;
+  --accent-soft: rgba(96, 165, 250, 0.18);
+  --accent-soft-2: rgba(96, 165, 250, 0.12);
+  --danger: #f87171;
+  --success: #34d399;
+  --border: #1e293b;
+  --shadow: rgba(15, 23, 42, 0.5);
+  --scroll-thumb: rgba(148, 163, 184, 0.4);
+  --scroll-thumb-hover: rgba(148, 163, 184, 0.6);
+  --scroll-track: transparent;
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scroll-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scroll-thumb-hover);
+}
+
+body {
+  margin: 0;
+  font-family: "Sora", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at top, #f8fbff 0%, #f1f5fb 45%, #e9eff8 100%);
+}
+
+body[data-theme="dark"] {
+  background: radial-gradient(circle at top, #111827 0%, #0f172a 40%, #0b1220 100%);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+button {
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+}
+
+select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 0.6rem 1.1rem;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.primary:hover {
+  background: var(--accent-strong);
+}
+
+.ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--ink);
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+}
+
+.danger {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+}
+
+.danger.soft {
+  background: rgba(226, 85, 85, 0.12);
+  color: var(--danger);
+  border: 1px solid rgba(226, 85, 85, 0.4);
+}
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.icon-button:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+}
+
+.icon-button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+}
+
+.link-button {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

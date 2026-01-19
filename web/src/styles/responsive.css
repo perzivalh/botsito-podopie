@@ -1,0 +1,155 @@
+@media (max-width: 1200px) {
+  .chat-shell {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+
+  .chat-view {
+    grid-template-columns: minmax(0, 1fr) 280px;
+  }
+
+  .campaigns-layout {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .campaigns-create {
+    grid-column: span 2;
+  }
+
+  .dashboard-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-layout {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1024px) {
+  .content {
+    padding: 1.2rem;
+  }
+
+  .chat-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-view {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .chat-info {
+    display: none;
+  }
+
+  .chat-view.info-open {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 0.9fr);
+  }
+
+  .chat-view.info-open .chat-info {
+    display: flex;
+  }
+
+  .campaigns-header {
+    flex-direction: column;
+  }
+
+  .campaigns-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .campaigns-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .campaigns-create {
+    grid-column: auto;
+  }
+
+  .template-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .campaigns-history {
+    overflow-x: auto;
+  }
+
+  .history-head,
+  .history-row {
+    min-width: 720px;
+  }
+
+  .dashboard-header {
+    flex-direction: column;
+  }
+
+  .dashboard-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .dashboard-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-lower {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-sidebar {
+    order: 2;
+  }
+
+  .users-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .users-table {
+    overflow-x: auto;
+  }
+
+  .users-table-head,
+  .users-row {
+    min-width: 680px;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .nav-rail {
+    padding: 1rem 0.5rem;
+  }
+
+  .rail-button,
+  .rail-logo {
+    width: 40px;
+    height: 40px;
+  }
+
+  .chat-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-shell.has-active .chat-list-panel {
+    display: none;
+  }
+
+  .back-button {
+    display: inline-flex;
+  }
+}

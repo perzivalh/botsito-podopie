@@ -138,6 +138,14 @@ model AuditLog {
   user      User?    @relation("UserAuditLogs", fields: [user_id], references: [id])
 }
 
+model RolePermission {
+  id               String   @id @default(cuid())
+  role             UserRole @unique
+  permissions_json Json
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+}
+
 model Branch {
   id         String   @id @default(cuid())
   code       String   @unique

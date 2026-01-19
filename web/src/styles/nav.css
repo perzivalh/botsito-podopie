@@ -1,0 +1,122 @@
+.nav-rail {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 1.2rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  height: 100%;
+  position: relative;
+}
+
+.rail-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 20px var(--shadow);
+}
+
+.logo-mark {
+  font-weight: 700;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1.1rem;
+}
+
+.rail-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.rail-button {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: var(--panel);
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.rail-button:hover {
+  transform: translateY(-1px);
+}
+
+.rail-button.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: 0 8px 18px var(--shadow);
+}
+
+.rail-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.rail-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.rail-spacer {
+  flex: 1;
+}
+
+.rail-profile {
+  position: relative;
+}
+
+.profile-button {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel-muted);
+  color: var(--accent);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-button.active {
+  border-color: var(--accent);
+}
+
+.profile-card {
+  position: absolute;
+  bottom: 60px;
+  left: 64px;
+  width: 220px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 1rem;
+  box-shadow: 0 14px 30px var(--shadow);
+  display: grid;
+  gap: 0.5rem;
+  animation: fadeUp 0.25s ease both;
+  z-index: 20;
+}
+
+.profile-title {
+  font-weight: 600;
+}
+
+.profile-meta,
+.profile-role {
+  font-size: 0.85rem;
+  color: var(--muted);
+}

@@ -2,9 +2,96 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost, setToken } from "./api";
 import { connectSocket } from "./socket";
+import NavRail from "./components/NavRail.jsx";
+import ChatView from "./components/ChatView.jsx";
+import DashboardView from "./components/DashboardView.jsx";
+import CampaignsView from "./components/CampaignsView.jsx";
+import AdminView from "./components/AdminView.jsx";
 
 const STATUS_OPTIONS = ["open", "pending", "closed"];
 const ROLE_OPTIONS = ["admin", "recepcion", "caja", "marketing", "doctor"];
+const DEFAULT_ROLE_PERMISSIONS = {
+  admin: {
+    modules: {
+      chat: { read: true, write: true },
+      dashboard: { read: true, write: true },
+      campaigns: { read: true, write: true },
+      settings: { read: true, write: true },
+    },
+    settings: {
+      general: { read: true, write: true },
+      users: { read: true, write: true },
+      bot: { read: true, write: true },
+      templates: { read: true, write: true },
+      audit: { read: true, write: true },
+      odoo: { read: true, write: true },
+    },
+  },
+  recepcion: {
+    modules: {
+      chat: { read: true, write: true },
+      dashboard: { read: true, write: false },
+      campaigns: { read: false, write: false },
+      settings: { read: false, write: false },
+    },
+    settings: {
+      general: { read: false, write: false },
+      users: { read: false, write: false },
+      bot: { read: false, write: false },
+      templates: { read: false, write: false },
+      audit: { read: false, write: false },
+      odoo: { read: false, write: false },
+    },
+  },
+  caja: {
+    modules: {
+      chat: { read: true, write: false },
+      dashboard: { read: true, write: false },
+      campaigns: { read: false, write: false },
+      settings: { read: false, write: false },
+    },
+    settings: {
+      general: { read: false, write: false },
+      users: { read: false, write: false },
+      bot: { read: false, write: false },
+      templates: { read: false, write: false },
+      audit: { read: false, write: false },
+      odoo: { read: false, write: false },
+    },
+  },
+  marketing: {
+    modules: {
+      chat: { read: false, write: false },
+      dashboard: { read: true, write: false },
+      campaigns: { read: true, write: true },
+      settings: { read: true, write: false },
+    },
+    settings: {
+      general: { read: true, write: false },
+      users: { read: false, write: false },
+      bot: { read: false, write: false },
+      templates: { read: true, write: true },
+      audit: { read: false, write: false },
+      odoo: { read: false, write: false },
+    },
+  },
+  doctor: {
+    modules: {
+      chat: { read: true, write: false },
+      dashboard: { read: false, write: false },
+      campaigns: { read: false, write: false },
+      settings: { read: false, write: false },
+    },
+    settings: {
+      general: { read: false, write: false },
+      users: { read: false, write: false },
+      bot: { read: false, write: false },
+      templates: { read: false, write: false },
+      audit: { read: false, write: false },
+      odoo: { read: false, write: false },
+    },
+  },
+};
 
 function formatDate(value) {
   if (!value) {
@@ -143,6 +230,37 @@ function getInitial(value) {
   }
   const trimmed = value.trim();
   return trimmed ? trimmed[0].toUpperCase() : "?";
+}
+
+function mergeRolePermissions(saved) {
+  if (!saved || typeof saved !== "object") {
+    return { ...DEFAULT_ROLE_PERMISSIONS };
+  }
+  const merged = { ...DEFAULT_ROLE_PERMISSIONS };
+  Object.entries(saved).forEach(([role, value]) => {
+    if (!value || typeof value !== "object") {
+      return;
+    }
+    merged[role] = {
+      modules: {
+        ...DEFAULT_ROLE_PERMISSIONS[role]?.modules,
+        ...value.modules,
+      },
+      settings: {
+        ...DEFAULT_ROLE_PERMISSIONS[role]?.settings,
+        ...value.settings,
+      },
+    };
+  });
+  return merged;
+}
+
+function hasPermission(rolePermissions, group, key, action = "read") {
+  const entry = rolePermissions?.[group]?.[key];
+  if (!entry) {
+    return false;
+  }
+  return Boolean(entry[action]);
 }
 
 function ChatIcon(props) {
@@ -316,7 +434,15 @@ function App() {
   const [hasUnread, setHasUnread] = useState(false);
   const messageInputRef = useRef(null);
   const chatBodyRef = useRef(null);
-  const [adminTab, setAdminTab] = useState("users");
+  const rolePermissionsVersion = useRef(0);
+  const [settingsSection, setSettingsSection] = useState("users");
+  const [settingsTab, setSettingsTab] = useState("list");
+  const [rolePermissions, setRolePermissions] = useState(() =>
+    mergeRolePermissions(null)
+  );
+  const [rolePermissionsLoaded, setRolePermissionsLoaded] = useState(false);
+  const [rolePermissionsDirty, setRolePermissionsDirty] = useState(false);
+  const [rolePermissionsSaving, setRolePermissionsSaving] = useState(false);
 
   const [filters, setFilters] = useState({
     status: "",
@@ -474,6 +600,13 @@ function App() {
   }, [user]);
 
   useEffect(() => {
+    if (!user) {
+      return;
+    }
+    void loadRolePermissions();
+  }, [user]);
+
+  useEffect(() => {
     if (!user || view !== "chats") {
       return;
     }
@@ -497,27 +630,49 @@ function App() {
     if (!user || view !== "admin") {
       return;
     }
-    const isAdmin = hasRole(user, ["admin"]);
-    if (!isAdmin && ["users", "settings", "audit"].includes(adminTab)) {
-      setAdminTab("catalog");
-      return;
-    }
-    if (adminTab === "users" && isAdmin) {
+    const roleAccess =
+      rolePermissions?.[user.role] || DEFAULT_ROLE_PERMISSIONS[user.role];
+    const canUsers = hasPermission(roleAccess, "settings", "users");
+    const canBot = hasPermission(roleAccess, "settings", "bot");
+    const canGeneral = hasPermission(roleAccess, "settings", "general");
+    const canTemplates = hasPermission(roleAccess, "settings", "templates");
+    const canAudit = hasPermission(roleAccess, "settings", "audit");
+
+    if (settingsSection === "users" && canUsers) {
       void loadAdminUsers();
     }
-    if (adminTab === "settings" && isAdmin) {
+    if (settingsSection === "bot" && canBot) {
       void loadSettings();
     }
-    if (adminTab === "catalog") {
+    if (settingsSection === "general" && canGeneral) {
       void loadCatalog();
     }
-    if (adminTab === "templates") {
+    if (settingsSection === "templates" && canTemplates) {
       void loadTemplates();
     }
-    if (adminTab === "audit" && isAdmin) {
+    if (settingsSection === "audit" && canAudit) {
       void loadAuditLogs();
     }
-  }, [user, view, adminTab]);
+  }, [user, view, settingsSection, rolePermissions]);
+
+  useEffect(() => {
+    if (!user || view !== "admin") {
+      return;
+    }
+    const roleAccess =
+      rolePermissions?.[user.role] || DEFAULT_ROLE_PERMISSIONS[user.role];
+    const sections = ["general", "users", "bot", "templates", "audit", "odoo"];
+    const allowed = sections.filter((section) =>
+      hasPermission(roleAccess, "settings", section)
+    );
+    if (!allowed.length) {
+      setView("chats");
+      return;
+    }
+    if (!allowed.includes(settingsSection)) {
+      setSettingsSection(allowed[0]);
+    }
+  }, [user, view, settingsSection, rolePermissions]);
 
   useEffect(() => {
     if (!token) {
@@ -562,12 +717,84 @@ function App() {
       socket.disconnect();
     };
   }, [token, activeConversation]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    const roleAccess =
+      rolePermissions?.[user.role] || DEFAULT_ROLE_PERMISSIONS[user.role];
+    const canChat = hasPermission(roleAccess, "modules", "chat");
+    const canDashboard = hasPermission(roleAccess, "modules", "dashboard");
+    const canCampaigns = hasPermission(roleAccess, "modules", "campaigns");
+    const canSettings = hasPermission(roleAccess, "modules", "settings");
+    if (view === "chats" && !canChat) {
+      setView(canDashboard ? "dashboard" : canCampaigns ? "campaigns" : "admin");
+    }
+    if (view === "dashboard" && !canDashboard) {
+      setView(canChat ? "chats" : canCampaigns ? "campaigns" : "admin");
+    }
+    if (view === "campaigns" && !canCampaigns) {
+      setView(canChat ? "chats" : canDashboard ? "dashboard" : "admin");
+    }
+    if (view === "admin" && !canSettings) {
+      setView(canChat ? "chats" : canDashboard ? "dashboard" : "campaigns");
+    }
+  }, [user, view, rolePermissions]);
+
+  useEffect(() => {
+    if (!user || user.role !== "admin") {
+      return;
+    }
+    if (!rolePermissionsLoaded || !rolePermissionsDirty || rolePermissionsSaving) {
+      return;
+    }
+    const handle = setTimeout(() => {
+      const saveVersion = rolePermissionsVersion.current;
+      setRolePermissionsSaving(true);
+      apiPatch("/api/admin/role-permissions", {
+        permissions: rolePermissions,
+      })
+        .then(() => {
+          if (rolePermissionsVersion.current === saveVersion) {
+            setRolePermissionsDirty(false);
+          }
+        })
+        .catch((error) => {
+          setPageError(normalizeError(error));
+        })
+        .finally(() => {
+          setRolePermissionsSaving(false);
+        });
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [
+    user,
+    rolePermissions,
+    rolePermissionsDirty,
+    rolePermissionsLoaded,
+    rolePermissionsSaving,
+  ]);
   async function loadUsers() {
     try {
       const data = await apiGet("/api/users");
       setUsers(data.users || []);
     } catch (error) {
       setPageError(normalizeError(error));
+    }
+  }
+
+  async function loadRolePermissions() {
+    try {
+      const data = await apiGet("/api/role-permissions");
+      const merged = mergeRolePermissions(data.permissions || null);
+      rolePermissionsVersion.current = 0;
+      setRolePermissions(merged);
+      setRolePermissionsDirty(false);
+      setRolePermissionsLoaded(true);
+    } catch (error) {
+      setPageError(normalizeError(error));
+      setRolePermissionsLoaded(true);
     }
   }
 
@@ -627,6 +854,19 @@ function App() {
     setMessages([]);
     setView("chats");
     setIsProfileOpen(false);
+    setRolePermissions(mergeRolePermissions(null));
+    setRolePermissionsLoaded(false);
+    setRolePermissionsDirty(false);
+    setRolePermissionsSaving(false);
+    rolePermissionsVersion.current = 0;
+  }
+
+  function handleRolePermissionsUpdate(updater) {
+    setRolePermissions((prev) =>
+      typeof updater === "function" ? updater(prev) : updater
+    );
+    rolePermissionsVersion.current += 1;
+    setRolePermissionsDirty(true);
   }
 
   function toggleTheme() {
@@ -1124,10 +1364,14 @@ function App() {
     );
   }
 
-  const canSeeCampaigns = hasRole(user, ["admin", "marketing"]);
-  const canSeeAdmin = hasRole(user, ["admin", "marketing"]);
-  const canAdminSettings = hasRole(user, ["admin"]);
-  const canManageStatus = hasRole(user, ["admin", "recepcion"]);
+  const roleAccess =
+    rolePermissions?.[user.role] || DEFAULT_ROLE_PERMISSIONS[user.role];
+  const canViewChats = hasPermission(roleAccess, "modules", "chat");
+  const canViewDashboard = hasPermission(roleAccess, "modules", "dashboard");
+  const canViewCampaigns = hasPermission(roleAccess, "modules", "campaigns");
+  const canViewAdmin = hasPermission(roleAccess, "modules", "settings");
+  const isAdmin = hasRole(user, ["admin"]);
+  const canManageStatus = hasPermission(roleAccess, "modules", "chat", "write");
   const quickActions = ["Confirmar Cita", "Solicitar Resultados", "Urgencia"];
   const statusLabels = {
     open: "En linea",
@@ -1144,19 +1388,24 @@ function App() {
     ? statusLabels[activeConversation.status] || "Sin estado"
     : "";
   const navItems = [
-    { id: "chats", label: "Chats", icon: ChatIcon, enabled: true },
-    { id: "dashboard", label: "Dashboard", icon: DashboardIcon, enabled: true },
+    { id: "chats", label: "Chats", icon: ChatIcon, enabled: canViewChats },
+    {
+      id: "dashboard",
+      label: "Dashboard",
+      icon: DashboardIcon,
+      enabled: canViewDashboard,
+    },
     {
       id: "campaigns",
       label: "Campanas",
       icon: BellIcon,
-      enabled: canSeeCampaigns,
+      enabled: canViewCampaigns,
     },
     {
       id: "admin",
       label: "Configuraciones",
       icon: SettingsIcon,
-      enabled: canSeeAdmin,
+      enabled: canViewAdmin,
     },
   ];
   const messageBlocks = [];
@@ -1190,1478 +1439,140 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className="nav-rail">
-        <button className="rail-logo" type="button" title="Podopie">
-          <span className="logo-mark">P</span>
-        </button>
-        <nav className="rail-nav">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                className={`rail-button ${view === item.id ? "active" : ""}`}
-                onClick={() => item.enabled && setView(item.id)}
-                title={item.label}
-                aria-label={item.label}
-                type="button"
-                disabled={!item.enabled}
-              >
-                <Icon className="rail-icon" />
-              </button>
-            );
-          })}
-        </nav>
-        <div className="rail-spacer" />
-        <button
-          className="rail-button"
-          type="button"
-          onClick={toggleTheme}
-          title={theme === "dark" ? "Tema claro" : "Tema oscuro"}
-          aria-label={theme === "dark" ? "Tema claro" : "Tema oscuro"}
-        >
-          {theme === "dark" ? (
-            <SunIcon className="rail-icon" />
-          ) : (
-            <MoonIcon className="rail-icon" />
-          )}
-        </button>
-        <div className="rail-profile">
-          <button
-            className={`profile-button ${isProfileOpen ? "active" : ""}`}
-            type="button"
-            onClick={() => setIsProfileOpen((prev) => !prev)}
-            title="Perfil"
-            aria-label="Perfil"
-          >
-            <span>{getInitial(user.name)}</span>
-          </button>
-          {isProfileOpen && (
-            <div className="profile-card">
-              <div className="profile-title">{user.name}</div>
-              <div className="profile-meta">{user.email || "Sin correo"}</div>
-              <div className="profile-role">{user.role}</div>
-              <button className="primary" type="button" onClick={handleLogout}>
-                Salir
-              </button>
-            </div>
-          )}
-        </div>
-      </aside>
+      <NavRail
+        navItems={navItems}
+        view={view}
+        onSetView={setView}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        user={user}
+        isProfileOpen={isProfileOpen}
+        onToggleProfile={() => setIsProfileOpen((prev) => !prev)}
+        onLogout={handleLogout}
+        getInitial={getInitial}
+        SunIcon={SunIcon}
+        MoonIcon={MoonIcon}
+      />
 
       <main
         className={`content ${view === "chats" ? "content-chats" : "content-page"}`}
       >
         {view === "chats" && (
-          <section
-            className={`chat-shell ${activeConversation ? "has-active" : ""}`}
-          >
-            <aside className="chat-list-panel">
-              <div className="chat-list-header">
-                <div>
-                  <div className="list-title">PODOPIE</div>
-                  <div className="list-subtitle">Chats</div>
-                </div>
-                <button
-                  className="icon-button add-chat"
-                  type="button"
-                  title="Nuevo chat"
-                >
-                  <PlusIcon className="icon" />
-                </button>
-              </div>
-
-              <div className="chat-search">
-                <SearchIcon className="search-icon" />
-                <input
-                  type="text"
-                  placeholder="Buscar pacientes o mensajes"
-                  value={filters.search}
-                  onFocus={() => setShowFilters(true)}
-                  onClick={() => setShowFilters(true)}
-                  onChange={(event) =>
-                    setFilters((prev) => ({ ...prev, search: event.target.value }))
-                  }
-                />
-                {showFilters && (
-                  <button
-                    className="search-close"
-                    type="button"
-                    onClick={() => setShowFilters(false)}
-                    aria-label="Cerrar filtros"
-                  >
-                    x
-                  </button>
-                )}
-              </div>
-
-              {showFilters && (
-                <div className="chat-filters">
-                  <label className="filter-field">
-                    <span>Status</span>
-                    <select
-                      value={filters.status}
-                      onChange={(event) =>
-                        setFilters((prev) => ({
-                          ...prev,
-                          status: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Todos</option>
-                      {STATUS_OPTIONS.map((status) => (
-                        <option value={status} key={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="filter-field">
-                    <span>Asignado</span>
-                    <select
-                      value={filters.assigned_user_id}
-                      onChange={(event) =>
-                        setFilters((prev) => ({
-                          ...prev,
-                          assigned_user_id: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Todos</option>
-                      <option value="unassigned">Sin asignar</option>
-                      {users.map((item) => (
-                        <option value={item.id} key={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="filter-field">
-                    <span>Tags</span>
-                    <select
-                      value={filters.tag}
-                      onChange={(event) =>
-                        setFilters((prev) => ({ ...prev, tag: event.target.value }))
-                      }
-                    >
-                      <option value="">Todos</option>
-                      {tags.map((tag) => (
-                        <option value={tag.name} key={tag.id}>
-                          {tag.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )}
-
-              <div className="list-header">
-                <span>Conversaciones</span>
-                <span>{conversations.length}</span>
-              </div>
-
-              <div className="conversation-list">
-                {conversations.map((conversation, index) => {
-                  const active = activeConversation?.id === conversation.id;
-                  const pendingUnassigned =
-                    conversation.status === "pending" &&
-                    !conversation.assigned_user_id;
-                  const displayName =
-                    conversation.display_name ||
-                    conversation.phone_e164 ||
-                    conversation.wa_id ||
-                    "Sin nombre";
-                  const preview =
-                    conversation.last_message_preview ||
-                    conversation.last_message_text ||
-                    conversation.last_message ||
-                    "Sin mensajes";
-                  const unreadCount = Number(
-                    conversation.unread_count ||
-                      conversation.unread_messages ||
-                      conversation.unread ||
-                      0
-                  );
-                  const topTag = conversation.tags?.[0]?.name || "";
-                  const statusLabel =
-                    statusLabels[conversation.status] || conversation.status;
-                  return (
-                    <button
-                      key={conversation.id}
-                      className={`conversation-item ${active ? "active" : ""}`}
-                      onClick={() => loadConversation(conversation.id)}
-                      style={{ animationDelay: `${Math.min(index, 6) * 60}ms` }}
-                    >
-                      <div className="avatar">
-                        <span>{getInitial(displayName)}</span>
-                        {pendingUnassigned && <span className="presence-dot" />}
-                      </div>
-                      <div className="conversation-body">
-                        <div className="conversation-row">
-                          <span className="conversation-name">{displayName}</span>
-                          <div className="conversation-right">
-                            <span className="conversation-time">
-                              {formatListTime(conversation.last_message_at)}
-                            </span>
-                            {unreadCount > 0 && (
-                              <span className="conversation-unread">
-                                {unreadCount}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="conversation-preview">{preview}</div>
-                        <div className="conversation-meta">
-                          <span className={`status-pill ${conversation.status}`}>
-                            {statusLabel}
-                          </span>
-                          {topTag && (
-                            <span className="status-pill tag-pill">{topTag}</span>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </aside>
-
-            <div
-              className={`chat-view ${isInfoOpen ? "info-open" : "info-closed"}`}
-            >
-              <div className="chat-main">
-                <div className="chat-card">
-                  <header className="chat-topbar">
-                    <div className="chat-title">
-                      {activeConversation && (
-                        <button
-                          className="back-button"
-                          type="button"
-                          onClick={handleBackToList}
-                        >
-                          Chats
-                        </button>
-                      )}
-                      <div className="chat-avatar">
-                        <span>{getInitial(activeName)}</span>
-                      </div>
-                      <div>
-                        <div className="chat-name">{activeName}</div>
-                        {activeConversation ? (
-                          <div className="chat-status">
-                            <span
-                              className={`status-dot ${activeConversation.status}`}
-                            />
-                            {activeStatusLabel}
-                          </div>
-                        ) : (
-                          <div className="chat-status muted">
-                            Elige una conversacion
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="chat-actions">
-                      <button className="icon-button" type="button" title="Video">
-                        <VideoIcon className="icon" />
-                      </button>
-                      <button className="icon-button" type="button" title="Llamar">
-                        <PhoneIcon className="icon" />
-                      </button>
-                      <button className="icon-button" type="button" title="Buscar">
-                        <SearchIcon className="icon" />
-                      </button>
-                      <button
-                        className={`icon-button ${isInfoOpen ? "active" : ""}`}
-                        type="button"
-                        title="Info"
-                        onClick={() => setIsInfoOpen((prev) => !prev)}
-                      >
-                        <InfoIcon className="icon" />
-                      </button>
-                    </div>
-                  </header>
-
-                  <div
-                    className="chat-body"
-                    ref={chatBodyRef}
-                    onScroll={handleChatScroll}
-                  >
-                    {loadingConversation && (
-                      <div className="empty">Cargando...</div>
-                    )}
-                    {!loadingConversation && !activeConversation && (
-                      <div className="empty">Selecciona una conversacion</div>
-                    )}
-                    {!loadingConversation && activeConversation && (
-                      <>
-                        {messageBlocks.length ? (
-                          messageBlocks
-                        ) : (
-                          <div className="empty-state">Sin mensajes</div>
-                        )}
-                        <div className="chat-encryption">
-                          Los mensajes estan cifrados de extremo a extremo.
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {hasUnread && (
-                    <button
-                      className="new-message-banner"
-                      type="button"
-                      onClick={scrollChatToBottom}
-                    >
-                      Nuevos mensajes
-                    </button>
-                  )}
-
-                  <form className="chat-composer" onSubmit={handleSendMessage}>
-                    <div className="quick-actions">
-                      {quickActions.map((action) => (
-                        <button
-                          key={action}
-                          className="quick-action"
-                          type="button"
-                          onClick={() => handleQuickAction(action)}
-                        >
-                          {action}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="composer-row">
-                      <select
-                        className="message-mode"
-                        value={messageMode}
-                        onChange={(event) => setMessageMode(event.target.value)}
-                      >
-                        <option value="text">WhatsApp</option>
-                        <option value="note">Nota interna</option>
-                      </select>
-                      <input
-                        ref={messageInputRef}
-                        type="text"
-                        placeholder="Escribe un mensaje..."
-                        value={messageDraft}
-                        onChange={(event) => setMessageDraft(event.target.value)}
-                      />
-                      <button className="send-button" type="submit">
-                        <SendIcon className="icon" />
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-
-              <aside className="chat-info">
-                <div className="info-card">
-                  <div className="info-avatar">
-                    <span>{getInitial(activeName)}</span>
-                  </div>
-                  <div className="info-name">{activeName}</div>
-                  <div className="info-phone">{activePhone || "Sin telefono"}</div>
-                  <button className="primary" type="button">
-                    Abrir en Odoo
-                  </button>
-                </div>
-
-                <div className="info-section">
-                  <div className="section-title">Informacion del paciente</div>
-                  <div className="info-row">
-                    <span>Ultima visita</span>
-                    <span>
-                      {formatCompactDate(
-                        activeConversation?.last_visit_at ||
-                          activeConversation?.last_visit
-                      )}
-                    </span>
-                  </div>
-                  <div className="info-row">
-                    <span>Tratamiento actual</span>
-                    <span>
-                      {activeConversation?.current_treatment ||
-                        activeConversation?.treatment ||
-                        "-"}
-                    </span>
-                  </div>
-                  <div className="info-row">
-                    <span>Alergias</span>
-                    <span>
-                      {activeConversation?.allergies || "Ninguna reportada"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="info-section">
-                  <div className="section-header">
-                    <div className="section-title">Etiquetas</div>
-                    <button className="link-button" type="button">
-                      Gestionar
-                    </button>
-                  </div>
-                  <div className="tag-list">
-                    {tags.map((tag) => (
-                      <button
-                        key={tag.id}
-                        className={`tag ${
-                          activeConversation?.tags?.some(
-                            (item) => item.name === tag.name
-                          )
-                            ? "active"
-                            : ""
-                        }`}
-                        onClick={() => handleToggleTag(tag.name)}
-                      >
-                        {tag.name}
-                      </button>
-                    ))}
-                  </div>
-                  <form className="tag-form" onSubmit={handleAddTag}>
-                    <input
-                      type="text"
-                      placeholder="Anadir etiqueta..."
-                      value={tagInput}
-                      onChange={(event) => setTagInput(event.target.value)}
-                    />
-                    <button
-                      className="icon-button"
-                      type="submit"
-                      title="Agregar"
-                    >
-                      <PlusIcon className="icon" />
-                    </button>
-                  </form>
-                </div>
-
-                <div className="info-section">
-                  <div className="section-title">Notas internas</div>
-                  {latestNote ? (
-                    <div className="note-card">{latestNote}</div>
-                  ) : (
-                    <div className="empty-state">Sin notas internas</div>
-                  )}
-                </div>
-
-                {activeConversation && (
-                  <div className="info-section">
-                    <div className="section-title">Acciones</div>
-                    <div className="action-stack">
-                      <button
-                        className="ghost"
-                        type="button"
-                        onClick={handleAssignSelf}
-                      >
-                        Tomar conversacion
-                      </button>
-                      {canManageStatus && (
-                        <>
-                          <button
-                            className="ghost"
-                            type="button"
-                            onClick={() => handleStatusChange("open")}
-                          >
-                            Reactivar bot
-                          </button>
-                          <button
-                            className="ghost"
-                            type="button"
-                            onClick={() => handleStatusChange("pending")}
-                          >
-                            Marcar pendiente
-                          </button>
-                        </>
-                      )}
-                      {canManageStatus && (
-                        <button
-                          className="danger soft"
-                          type="button"
-                          onClick={() => handleStatusChange("closed")}
-                        >
-                          Cerrar conversacion
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </aside>
-            </div>
-          </section>
+          <ChatView
+            activeConversation={activeConversation}
+            conversations={conversations}
+            filters={filters}
+            showFilters={showFilters}
+            users={users}
+            tags={tags}
+            statusOptions={STATUS_OPTIONS}
+            statusLabels={statusLabels}
+            formatListTime={formatListTime}
+            formatCompactDate={formatCompactDate}
+            messageBlocks={messageBlocks}
+            messageDraft={messageDraft}
+            messageMode={messageMode}
+            quickActions={quickActions}
+            tagInput={tagInput}
+            latestNote={latestNote}
+            loadingConversation={loadingConversation}
+            isInfoOpen={isInfoOpen}
+            hasUnread={hasUnread}
+            activeName={activeName}
+            activePhone={activePhone}
+            activeStatusLabel={activeStatusLabel}
+            canManageStatus={canManageStatus}
+            messageInputRef={messageInputRef}
+            chatBodyRef={chatBodyRef}
+            setShowFilters={setShowFilters}
+            setFilters={setFilters}
+            loadConversation={loadConversation}
+            handleBackToList={handleBackToList}
+            setIsInfoOpen={setIsInfoOpen}
+            handleChatScroll={handleChatScroll}
+            handleAssignSelf={handleAssignSelf}
+            handleStatusChange={handleStatusChange}
+            handleToggleTag={handleToggleTag}
+            handleAddTag={handleAddTag}
+            handleQuickAction={handleQuickAction}
+            handleSendMessage={handleSendMessage}
+            setMessageMode={setMessageMode}
+            setMessageDraft={setMessageDraft}
+            scrollChatToBottom={scrollChatToBottom}
+            getInitial={getInitial}
+            PlusIcon={PlusIcon}
+            SearchIcon={SearchIcon}
+            VideoIcon={VideoIcon}
+            PhoneIcon={PhoneIcon}
+            InfoIcon={InfoIcon}
+            SendIcon={SendIcon}
+          />
         )}
         {view === "dashboard" && (
-          <section className="page">
-            <div className="page-header">
-              <h2>Dashboard</h2>
-              <button className="ghost" onClick={loadMetrics}>
-                Actualizar
-              </button>
-            </div>
-            <div className="dashboard-grid">
-              <div className="metric-card">
-                <div className="metric-label">Open</div>
-                <div className="metric-value">{statusCounts.open}</div>
-              </div>
-              <div className="metric-card">
-                <div className="metric-label">Pending</div>
-                <div className="metric-value">{statusCounts.pending}</div>
-              </div>
-              <div className="metric-card">
-                <div className="metric-label">Closed</div>
-                <div className="metric-value">{statusCounts.closed}</div>
-              </div>
-              <div className="metric-card">
-                <div className="metric-label">Avg 1ra respuesta</div>
-                <div className="metric-value">
-                  {formatDuration(metrics?.avg_first_reply_seconds)}
-                </div>
-              </div>
-            </div>
-            <div className="page-grid">
-              <div className="panel">
-                <div className="panel-title">Mensajes por dia</div>
-                <div className="table">
-                  <div className="table-head">
-                    <span>Dia</span>
-                    <span>In</span>
-                    <span>Out</span>
-                  </div>
-                  {(metrics?.message_volume || []).map((item) => (
-                    <div className="table-row" key={item.day}>
-                      <span>{formatCompactDate(item.day)}</span>
-                      <span>{item.in_count}</span>
-                      <span>{item.out_count}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="panel">
-                <div className="panel-title">Top tags</div>
-                <div className="table">
-                  <div className="table-head">
-                    <span>Tag</span>
-                    <span>Conteo</span>
-                  </div>
-                  {(metrics?.top_tags || []).map((item) => (
-                    <div className="table-row" key={item.name}>
-                      <span>{item.name}</span>
-                      <span>{item.count}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
+          <DashboardView
+            statusCounts={statusCounts}
+            metrics={metrics}
+            onRefresh={loadMetrics}
+          />
         )}
         {view === "campaigns" && (
-          <section className="page">
-            <div className="page-header">
-              <h2>Campanas</h2>
-              <button className="ghost" onClick={loadCampaigns}>
-                Actualizar
-              </button>
-            </div>
-            <div className="page-grid">
-              <div className="panel">
-                <div className="panel-title">Nueva campana</div>
-                <form className="form-grid" onSubmit={handleCreateCampaign}>
-                  <label className="field">
-                    <span>Nombre</span>
-                    <input
-                      type="text"
-                      value={campaignForm.name}
-                      onChange={(event) =>
-                        setCampaignForm((prev) => ({
-                          ...prev,
-                          name: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Template</span>
-                    <select
-                      value={campaignForm.template_id}
-                      onChange={(event) =>
-                        setCampaignForm((prev) => ({
-                          ...prev,
-                          template_id: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Selecciona plantilla</option>
-                      {templates.map((template) => (
-                        <option value={template.id} key={template.id}>
-                          {template.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Programar (opcional)</span>
-                    <input
-                      type="datetime-local"
-                      value={campaignForm.scheduled_for}
-                      onChange={(event) =>
-                        setCampaignForm((prev) => ({
-                          ...prev,
-                          scheduled_for: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Status filtro</span>
-                    <select
-                      value={campaignFilter.status}
-                      onChange={(event) =>
-                        setCampaignFilter((prev) => ({
-                          ...prev,
-                          status: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Todos</option>
-                      {STATUS_OPTIONS.map((status) => (
-                        <option value={status} key={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Tag</span>
-                    <input
-                      type="text"
-                      value={campaignFilter.tag}
-                      onChange={(event) =>
-                        setCampaignFilter((prev) => ({
-                          ...prev,
-                          tag: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Asignado</span>
-                    <select
-                      value={campaignFilter.assigned_user_id}
-                      onChange={(event) =>
-                        setCampaignFilter((prev) => ({
-                          ...prev,
-                          assigned_user_id: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Todos</option>
-                      <option value="unassigned">Sin asignar</option>
-                      {users.map((item) => (
-                        <option value={item.id} key={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={campaignFilter.verified_only}
-                      onChange={(event) =>
-                        setCampaignFilter((prev) => ({
-                          ...prev,
-                          verified_only: event.target.checked,
-                        }))
-                      }
-                    />
-                    Solo verificados
-                  </label>
-                  <div className="form-actions">
-                    <button className="primary" type="submit">
-                      Crear campana
-                    </button>
-                  </div>
-                </form>
-                <div className="panel-subtitle">Preview</div>
-                <div className="preview-box">
-                  {selectedTemplate?.body_preview ||
-                    "Selecciona una plantilla para ver preview"}
-                </div>
-              </div>
-              <div className="panel">
-                <div className="panel-title">Listado</div>
-                <div className="table">
-                  <div className="table-head">
-                    <span>Nombre</span>
-                    <span>Status</span>
-                    <span>Accion</span>
-                  </div>
-                  {campaigns.map((campaign) => (
-                    <div className="table-row" key={campaign.id}>
-                      <span>{campaign.name}</span>
-                      <span>{campaign.status}</span>
-                      <div className="row-actions">
-                        <button
-                          className="ghost"
-                          onClick={() => loadCampaignMessages(campaign.id)}
-                        >
-                          Ver mensajes
-                        </button>
-                        <button
-                          className="primary"
-                          onClick={() => handleSendCampaign(campaign.id)}
-                          disabled={campaign.status === "sending"}
-                        >
-                          Enviar
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {selectedCampaignId && (
-                  <>
-                    <div className="panel-title">Mensajes</div>
-                    <div className="table">
-                      <div className="table-head">
-                        <span>WA</span>
-                        <span>Status</span>
-                        <span>Enviado</span>
-                      </div>
-                      {campaignMessages.map((message) => (
-                        <div className="table-row" key={message.id}>
-                          <span>{message.wa_id}</span>
-                          <span>{message.status}</span>
-                          <span>{formatDate(message.sent_at)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </section>
+          <CampaignsView
+            campaignForm={campaignForm}
+            setCampaignForm={setCampaignForm}
+            campaignFilter={campaignFilter}
+            setCampaignFilter={setCampaignFilter}
+            templates={templates}
+            campaigns={campaigns}
+            selectedCampaignId={selectedCampaignId}
+            campaignMessages={campaignMessages}
+            users={users}
+            tags={tags}
+            selectedTemplate={selectedTemplate}
+            statusOptions={STATUS_OPTIONS}
+            onCreateCampaign={handleCreateCampaign}
+            onLoadCampaigns={loadCampaigns}
+            onLoadCampaignMessages={loadCampaignMessages}
+            onSendCampaign={handleSendCampaign}
+            formatDate={formatDate}
+          />
         )}
         {view === "admin" && (
-          <section className="page">
-            <div className="page-header">
-              <h2>Admin</h2>
-              <div className="tab-row">
-                {hasRole(user, ["admin"]) && (
-                  <>
-                    <button
-                      className={`tab-button ${
-                        adminTab === "users" ? "active" : ""
-                      }`}
-                      onClick={() => setAdminTab("users")}
-                    >
-                      Usuarios
-                    </button>
-                    <button
-                      className={`tab-button ${
-                        adminTab === "settings" ? "active" : ""
-                      }`}
-                      onClick={() => setAdminTab("settings")}
-                    >
-                      Settings
-                    </button>
-                  </>
-                )}
-                <button
-                  className={`tab-button ${
-                    adminTab === "catalog" ? "active" : ""
-                  }`}
-                  onClick={() => setAdminTab("catalog")}
-                >
-                  Catalogo
-                </button>
-                <button
-                  className={`tab-button ${
-                    adminTab === "templates" ? "active" : ""
-                  }`}
-                  onClick={() => setAdminTab("templates")}
-                >
-                  Templates
-                </button>
-                {hasRole(user, ["admin"]) && (
-                  <button
-                    className={`tab-button ${
-                      adminTab === "audit" ? "active" : ""
-                    }`}
-                    onClick={() => setAdminTab("audit")}
-                  >
-                    Audit
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {adminTab === "users" && canAdminSettings && (
-              <div className="page-grid">
-                <div className="panel">
-                  <div className="panel-title">Usuarios</div>
-                  <div className="table">
-                    <div className="table-head">
-                      <span>Nombre</span>
-                      <span>Rol</span>
-                      <span>Estado</span>
-                      <span>Accion</span>
-                    </div>
-                    {adminUsers.map((item) => (
-                      <div className="table-row" key={item.id}>
-                        <span>{item.name}</span>
-                        <span>{item.role}</span>
-                        <span>{item.is_active ? "Activo" : "Inactivo"}</span>
-                        <button
-                          className="ghost"
-                          onClick={() =>
-                            setUserForm({
-                              id: item.id,
-                              name: item.name,
-                              email: item.email,
-                              role: item.role,
-                              password: "",
-                              is_active: item.is_active,
-                            })
-                          }
-                        >
-                          Editar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="panel">
-                  <div className="panel-title">
-                    {userForm.id ? "Editar usuario" : "Crear usuario"}
-                  </div>
-                  <form className="form-grid" onSubmit={handleUserSubmit}>
-                    <label className="field">
-                      <span>Nombre</span>
-                      <input
-                        type="text"
-                        value={userForm.name}
-                        onChange={(event) =>
-                          setUserForm((prev) => ({
-                            ...prev,
-                            name: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Email</span>
-                      <input
-                        type="email"
-                        value={userForm.email}
-                        onChange={(event) =>
-                          setUserForm((prev) => ({
-                            ...prev,
-                            email: event.target.value,
-                          }))
-                        }
-                        disabled={Boolean(userForm.id)}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Rol</span>
-                      <select
-                        value={userForm.role}
-                        onChange={(event) =>
-                          setUserForm((prev) => ({
-                            ...prev,
-                            role: event.target.value,
-                          }))
-                        }
-                      >
-                        {ROLE_OPTIONS.map((role) => (
-                          <option value={role} key={role}>
-                            {role}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span>Password</span>
-                      <input
-                        type="password"
-                        value={userForm.password}
-                        onChange={(event) =>
-                          setUserForm((prev) => ({
-                            ...prev,
-                            password: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={userForm.is_active}
-                        onChange={(event) =>
-                          setUserForm((prev) => ({
-                            ...prev,
-                            is_active: event.target.checked,
-                          }))
-                        }
-                      />
-                      Activo
-                    </label>
-                    <div className="form-actions">
-                      <button className="primary" type="submit">
-                        {userForm.id ? "Guardar cambios" : "Crear"}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {adminTab === "settings" && canAdminSettings && (
-              <div className="panel">
-                <div className="panel-title">Settings</div>
-                {settings ? (
-                  <>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={settings.bot_enabled}
-                        onChange={(event) =>
-                          setSettings((prev) => ({
-                            ...prev,
-                            bot_enabled: event.target.checked,
-                          }))
-                        }
-                      />
-                      Bot enabled
-                    </label>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={settings.auto_reply_enabled}
-                        onChange={(event) =>
-                          setSettings((prev) => ({
-                            ...prev,
-                            auto_reply_enabled: event.target.checked,
-                          }))
-                        }
-                      />
-                      Auto reply enabled
-                    </label>
-                    <button className="primary" onClick={handleSaveSettings}>
-                      Guardar settings
-                    </button>
-                  </>
-                ) : (
-                  <div className="empty-state">Cargando settings...</div>
-                )}
-              </div>
-            )}
-            {adminTab === "catalog" && (
-              <div className="page-grid">
-                <div className="panel">
-                  <div className="panel-title">Sucursales</div>
-                  <div className="table">
-                    <div className="table-head">
-                      <span>Nombre</span>
-                      <span>Codigo</span>
-                      <span>Estado</span>
-                      <span>Accion</span>
-                    </div>
-                    {branches.map((branch) => (
-                      <div className="table-row" key={branch.id}>
-                        <span>{branch.name}</span>
-                        <span>{branch.code}</span>
-                        <span>{branch.is_active ? "Activa" : "Inactiva"}</span>
-                        <div className="row-actions">
-                          <button
-                            className="ghost"
-                            onClick={() =>
-                              setBranchForm({
-                                id: branch.id,
-                                code: branch.code,
-                                name: branch.name,
-                                address: branch.address,
-                                lat: branch.lat,
-                                lng: branch.lng,
-                                hours_text: branch.hours_text,
-                                phone: branch.phone || "",
-                                is_active: branch.is_active,
-                              })
-                            }
-                          >
-                            Editar
-                          </button>
-                          <button
-                            className="danger"
-                            onClick={() => handleBranchDisable(branch.id)}
-                          >
-                            Desactivar
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="panel-title">
-                    {branchForm.id ? "Editar sucursal" : "Crear sucursal"}
-                  </div>
-                  <form className="form-grid" onSubmit={handleBranchSubmit}>
-                    <label className="field">
-                      <span>Codigo</span>
-                      <input
-                        type="text"
-                        value={branchForm.code}
-                        onChange={(event) =>
-                          setBranchForm((prev) => ({
-                            ...prev,
-                            code: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Nombre</span>
-                      <input
-                        type="text"
-                        value={branchForm.name}
-                        onChange={(event) =>
-                          setBranchForm((prev) => ({
-                            ...prev,
-                            name: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Direccion</span>
-                      <input
-                        type="text"
-                        value={branchForm.address}
-                        onChange={(event) =>
-                          setBranchForm((prev) => ({
-                            ...prev,
-                            address: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Lat</span>
-                      <input
-                        type="number"
-                        value={branchForm.lat}
-                        onChange={(event) =>
-                          setBranchForm((prev) => ({
-                            ...prev,
-                            lat: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Lng</span>
-                      <input
-                        type="number"
-                        value={branchForm.lng}
-                        onChange={(event) =>
-                          setBranchForm((prev) => ({
-                            ...prev,
-                            lng: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Telefono</span>
-                      <input
-                        type="text"
-                        value={branchForm.phone}
-                        onChange={(event) =>
-                          setBranchForm((prev) => ({
-                            ...prev,
-                            phone: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Horarios</span>
-                      <textarea
-                        rows="3"
-                        value={branchForm.hours_text}
-                        onChange={(event) =>
-                          setBranchForm((prev) => ({
-                            ...prev,
-                            hours_text: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={branchForm.is_active}
-                        onChange={(event) =>
-                          setBranchForm((prev) => ({
-                            ...prev,
-                            is_active: event.target.checked,
-                          }))
-                        }
-                      />
-                      Activa
-                    </label>
-                    <div className="form-actions">
-                      <button className="primary" type="submit">
-                        Guardar
-                      </button>
-                    </div>
-                  </form>
-                </div>
-
-                <div className="panel">
-                  <div className="panel-title">Servicios</div>
-                  <div className="table">
-                    <div className="table-head">
-                      <span>Servicio</span>
-                      <span>Precio</span>
-                      <span>Estado</span>
-                      <span>Accion</span>
-                    </div>
-                    {services.map((service) => (
-                      <div className="table-row" key={service.id}>
-                        <span>{service.name}</span>
-                        <span>Bs {service.price_bob}</span>
-                        <span>{service.is_active ? "Activo" : "Inactivo"}</span>
-                        <div className="row-actions">
-                          <button
-                            className="ghost"
-                            onClick={() =>
-                              setServiceForm({
-                                id: service.id,
-                                code: service.code,
-                                name: service.name,
-                                subtitle: service.subtitle || "",
-                                description: service.description,
-                                price_bob: service.price_bob,
-                                duration_min: service.duration_min || "",
-                                image_url: service.image_url || "",
-                                is_featured: service.is_featured,
-                                is_active: service.is_active,
-                              })
-                            }
-                          >
-                            Editar
-                          </button>
-                          <button
-                            className="danger"
-                            onClick={() => handleServiceDisable(service.id)}
-                          >
-                            Desactivar
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="panel-title">
-                    {serviceForm.id ? "Editar servicio" : "Crear servicio"}
-                  </div>
-                  <form className="form-grid" onSubmit={handleServiceSubmit}>
-                    <label className="field">
-                      <span>Codigo</span>
-                      <input
-                        type="text"
-                        value={serviceForm.code}
-                        onChange={(event) =>
-                          setServiceForm((prev) => ({
-                            ...prev,
-                            code: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Nombre</span>
-                      <input
-                        type="text"
-                        value={serviceForm.name}
-                        onChange={(event) =>
-                          setServiceForm((prev) => ({
-                            ...prev,
-                            name: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Subtitulo</span>
-                      <input
-                        type="text"
-                        value={serviceForm.subtitle}
-                        onChange={(event) =>
-                          setServiceForm((prev) => ({
-                            ...prev,
-                            subtitle: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Descripcion</span>
-                      <textarea
-                        rows="3"
-                        value={serviceForm.description}
-                        onChange={(event) =>
-                          setServiceForm((prev) => ({
-                            ...prev,
-                            description: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Precio (Bs)</span>
-                      <input
-                        type="number"
-                        value={serviceForm.price_bob}
-                        onChange={(event) =>
-                          setServiceForm((prev) => ({
-                            ...prev,
-                            price_bob: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Duracion (min)</span>
-                      <input
-                        type="number"
-                        value={serviceForm.duration_min}
-                        onChange={(event) =>
-                          setServiceForm((prev) => ({
-                            ...prev,
-                            duration_min: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Imagen URL</span>
-                      <input
-                        type="text"
-                        value={serviceForm.image_url}
-                        onChange={(event) =>
-                          setServiceForm((prev) => ({
-                            ...prev,
-                            image_url: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={serviceForm.is_featured}
-                        onChange={(event) =>
-                          setServiceForm((prev) => ({
-                            ...prev,
-                            is_featured: event.target.checked,
-                          }))
-                        }
-                      />
-                      Destacado
-                    </label>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={serviceForm.is_active}
-                        onChange={(event) =>
-                          setServiceForm((prev) => ({
-                            ...prev,
-                            is_active: event.target.checked,
-                          }))
-                        }
-                      />
-                      Activo
-                    </label>
-                    {serviceForm.id && (
-                      <div className="field">
-                        <span>Disponibilidad por sucursal</span>
-                        <div className="chip-grid">
-                          {branches.map((branch) => {
-                            const mapping = services
-                              .find((item) => item.id === serviceForm.id)
-                              ?.branches?.find((entry) => {
-                                const branchId =
-                                  entry.branch?.id || entry.branch_id;
-                                return branchId === branch.id;
-                              });
-                            const available = mapping?.is_available || false;
-                            return (
-                              <label className="chip" key={branch.id}>
-                                <input
-                                  type="checkbox"
-                                  checked={available}
-                                  onChange={(event) =>
-                                    handleServiceBranchToggle(
-                                      services.find((item) => item.id === serviceForm.id),
-                                      branch.id,
-                                      event.target.checked
-                                    )
-                                  }
-                                />
-                                {branch.name}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    <div className="form-actions">
-                      <button className="primary" type="submit">
-                        Guardar
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-            {adminTab === "templates" && (
-              <div className="page-grid">
-                <div className="panel">
-                  <div className="panel-title">Templates</div>
-                  <button className="ghost" onClick={handleSyncTemplates}>
-                    Sincronizar WhatsApp
-                  </button>
-                  <div className="table">
-                    <div className="table-head">
-                      <span>Nombre</span>
-                      <span>Lang</span>
-                      <span>Estado</span>
-                      <span>Accion</span>
-                    </div>
-                    {templates.map((template) => (
-                      <div className="table-row" key={template.id}>
-                        <span>{template.name}</span>
-                        <span>{template.language}</span>
-                        <span>{template.is_active ? "Activo" : "Inactivo"}</span>
-                        <button
-                          className="ghost"
-                          onClick={() =>
-                            setTemplateForm({
-                              id: template.id,
-                              name: template.name,
-                              language: template.language,
-                              category: template.category || "",
-                              body_preview: template.body_preview,
-                              is_active: template.is_active,
-                            })
-                          }
-                        >
-                          Editar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="panel">
-                  <div className="panel-title">
-                    {templateForm.id ? "Editar template" : "Crear template"}
-                  </div>
-                  <form className="form-grid" onSubmit={handleTemplateSubmit}>
-                    <label className="field">
-                      <span>Nombre</span>
-                      <input
-                        type="text"
-                        value={templateForm.name}
-                        onChange={(event) =>
-                          setTemplateForm((prev) => ({
-                            ...prev,
-                            name: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Idioma</span>
-                      <input
-                        type="text"
-                        value={templateForm.language}
-                        onChange={(event) =>
-                          setTemplateForm((prev) => ({
-                            ...prev,
-                            language: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Categoria</span>
-                      <input
-                        type="text"
-                        value={templateForm.category}
-                        onChange={(event) =>
-                          setTemplateForm((prev) => ({
-                            ...prev,
-                            category: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Preview</span>
-                      <textarea
-                        rows="4"
-                        value={templateForm.body_preview}
-                        onChange={(event) =>
-                          setTemplateForm((prev) => ({
-                            ...prev,
-                            body_preview: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={templateForm.is_active}
-                        onChange={(event) =>
-                          setTemplateForm((prev) => ({
-                            ...prev,
-                            is_active: event.target.checked,
-                          }))
-                        }
-                      />
-                      Activo
-                    </label>
-                    <div className="form-actions">
-                      <button className="primary" type="submit">
-                        Guardar
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {adminTab === "audit" && canAdminSettings && (
-              <div className="panel">
-                <div className="panel-title">Audit logs</div>
-                <div className="table">
-                  <div className="table-head">
-                    <span>Accion</span>
-                    <span>Fecha</span>
-                    <span>Data</span>
-                  </div>
-                  {auditLogs.map((log) => (
-                    <div className="table-row" key={log.id}>
-                      <span>{log.action}</span>
-                      <span>{formatDate(log.created_at)}</span>
-                      <span className="muted">
-                        {JSON.stringify(log.data_json || {})}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
+          <AdminView
+            settingsSection={settingsSection}
+            setSettingsSection={setSettingsSection}
+            settingsTab={settingsTab}
+            setSettingsTab={setSettingsTab}
+            rolePermissions={rolePermissions}
+            setRolePermissions={handleRolePermissionsUpdate}
+            currentRole={user.role}
+            isAdmin={isAdmin}
+            adminUsers={adminUsers}
+            userForm={userForm}
+            setUserForm={setUserForm}
+            roleOptions={ROLE_OPTIONS}
+            handleUserSubmit={handleUserSubmit}
+            settings={settings}
+            setSettings={setSettings}
+            handleSaveSettings={handleSaveSettings}
+            branches={branches}
+            services={services}
+            branchForm={branchForm}
+            setBranchForm={setBranchForm}
+            handleBranchSubmit={handleBranchSubmit}
+            handleBranchDisable={handleBranchDisable}
+            serviceForm={serviceForm}
+            setServiceForm={setServiceForm}
+            handleServiceSubmit={handleServiceSubmit}
+            handleServiceDisable={handleServiceDisable}
+            handleServiceBranchToggle={handleServiceBranchToggle}
+            templates={templates}
+            templateForm={templateForm}
+            setTemplateForm={setTemplateForm}
+            handleTemplateSubmit={handleTemplateSubmit}
+            handleSyncTemplates={handleSyncTemplates}
+            auditLogs={auditLogs}
+            formatDate={formatDate}
+          />
         )}
 
         {pageError && <div className="error-banner">{pageError}</div>}

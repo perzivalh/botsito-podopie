@@ -42,6 +42,7 @@ const WHATSAPP_APP_SECRET = process.env.WHATSAPP_APP_SECRET || "";
 const ALLOWED_STATUS = new Set(["open", "pending", "closed"]);
 const CAMPAIGN_BATCH_SIZE = Number(process.env.CAMPAIGN_BATCH_SIZE || 8);
 const CAMPAIGN_INTERVAL_MS = Number(process.env.CAMPAIGN_INTERVAL_MS || 1500);
+const ROLE_OPTIONS = ["admin", "recepcion", "caja", "marketing", "doctor"];
 
 const app = express();
 app.set("trust proxy", 1);
@@ -501,6 +502,22 @@ app.get("/api/me", requireAuth, (req, res) => {
   return res.json({ user: req.user });
 });
 
+app.get("/api/role-permissions", requireAuth, async (req, res) => {
+  const entries = await prisma.rolePermission.findMany();
+  const permissions = entries.reduce((acc, entry) => {
+    acc[entry.role] = entry.permissions_json || {};
+    return acc;
+  }, {});
+  if (req.user.role !== "admin") {
+    return res.json({
+      permissions: {
+        [req.user.role]: permissions[req.user.role] || null,
+      },
+    });
+  }
+  return res.json({ permissions });
+});
+
 app.get("/api/users", requireAuth, async (req, res) => {
   const users = await prisma.user.findMany({
     where: { is_active: true },
@@ -949,6 +966,42 @@ app.patch(
       data: { user_id: user.id, updates: Object.keys(updates) },
     });
     return res.json({ user });
+  }
+);
+
+app.patch(
+  "/api/admin/role-permissions",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res) => {
+    const permissions = req.body?.permissions;
+    if (!permissions || typeof permissions !== "object") {
+      return res.status(400).json({ error: "invalid_permissions" });
+    }
+    const updates = [];
+    const savedRoles = [];
+    for (const [role, payload] of Object.entries(permissions)) {
+      if (!ROLE_OPTIONS.includes(role)) {
+        continue;
+      }
+      updates.push(
+        prisma.rolePermission.upsert({
+          where: { role },
+          update: { permissions_json: payload || {} },
+          create: { role, permissions_json: payload || {} },
+        })
+      );
+      savedRoles.push(role);
+    }
+    if (updates.length) {
+      await prisma.$transaction(updates);
+    }
+    await logAudit({
+      userId: req.user.id,
+      action: "role_permissions.updated",
+      data: { roles: savedRoles },
+    });
+    return res.json({ ok: true, roles: savedRoles });
   }
 );
 
