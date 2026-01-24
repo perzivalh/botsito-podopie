@@ -22,18 +22,18 @@ Obligatorias en runtime:
 Recomendadas/globales:
 
 - `WHATSAPP_APP_SECRET` = para validar firma del webhook (opcional).
-- `WHATSAPP_BUSINESS_ACCOUNT_ID` = WABA para sincronizar templates.
-- `WHATSAPP_TOKEN` = token global solo para sincronizar templates.
-- `PHONE_NUMBER_ID` = opcional, solo para sincronizar templates.
 - `ADMIN_PHONE_E164` = telefono admin para comandos bot (BOT/CERRAR).
-- `ODOO_BASE_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` (o legacy `ODOO_URL`, `ODOO_USER`, `ODOO_PASS`).
+- `ODOO_BASE_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` (solo si usas un Odoo global).
 - `DEBUG_KEY`, `PORT`, `NODE_ENV`, `CAMPAIGN_BATCH_SIZE`, `CAMPAIGN_INTERVAL_MS`.
+
+Si vas a sincronizar templates por tenant (recomendado), no necesitas `WHATSAPP_TOKEN`, `PHONE_NUMBER_ID` ni `WHATSAPP_BUSINESS_ACCOUNT_ID` en Railway.
 
 Solo para CLI (no es necesario en runtime):
 
 - `TENANT_DB_URL` = se usa para migraciones y seed de una DB tenant.
 
 Nota: `VERIFY_TOKEN` es global. Hoy no hay verify token por tenant.
+Nota: si usas Odoo por tenant, configura Odoo en el panel SuperAdmin y deja `ODOO_*` vacios en Railway.
 
 ## 3) Variables en Vercel (web)
 
@@ -90,13 +90,27 @@ npm run seed:superadmin
 3. Configura la DB del tenant (pega su URL en el panel).
 4. Crea el Channel:
    - `phone_number_id`
+   - `waba_id` (Business Account ID del numero)
    - `verify_token` (usa el mismo que `VERIFY_TOKEN`)
    - `wa_token` (token que tenga acceso a ese numero)
+   - `app_secret` (App Secret de esa app, opcional pero recomendado)
 5. Branding basico (nombre/logo).
+6. (Opcional) Odoo: base URL, DB, usuario y password del tenant.
 
 Sin Channel registrado, el webhook se ignora.
 
 Si el tenant tiene multiples lineas, crea multiples Channels con el mismo tenant.
+
+## 6A) Odoo por tenant (opcional)
+
+Si cada cliente tiene su propio Odoo:
+
+1. Entra al panel SuperAdmin.
+2. En la seccion Odoo, selecciona el tenant.
+3. Completa: Base URL, DB, usuario y password.
+4. Guarda los cambios.
+
+Si un tenant no tiene Odoo configurado, las funciones de Odoo se omiten para ese tenant.
 
 ## 7) Meta Developers (por cliente)
 
@@ -113,12 +127,13 @@ En ambos casos, por cada numero debes:
    - Verify Token: el mismo `VERIFY_TOKEN` global.
 3. Suscribirte a `messages` y `message_template_status_update`.
 4. Obtener el `phone_number_id` del numero.
-5. Generar un token con acceso a ese numero (System User).
-6. Cargar ese `phone_number_id` y token en el Channel del tenant.
+5. Obtener el `waba_id` (Business Account ID).
+6. Generar un token con acceso a ese numero (System User).
+7. Cargar `phone_number_id`, `waba_id`, token y `app_secret` en el Channel del tenant.
 
 Limitacion actual:
 - El verify token es global.
-- La sincronizacion de templates usa `WHATSAPP_TOKEN` y `WHATSAPP_BUSINESS_ACCOUNT_ID` globales.
+Si cada cliente tiene su propia app, guarda su App Secret en el Channel para validar firmas correctamente.
 
 ## 8) Vercel (web)
 
@@ -147,6 +162,7 @@ Para multiples lineas, cada conversacion queda ligada a su `phone_number_id` y l
 - [ ] DB tenant creada y migrada.
 - [ ] Admin del tenant creado.
 - [ ] Tenant + Channel registrados en el panel.
+- [ ] (Opcional) Odoo configurado por tenant.
 - [ ] Webhook verificado en Meta.
 - [ ] Vercel apunta a la API.
 

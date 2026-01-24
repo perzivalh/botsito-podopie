@@ -28,21 +28,22 @@ Copia `.env.example` a `.env` en la raiz y completa los valores. Para el fronten
 
 ### WhatsApp Cloud API
 
-- `WHATSAPP_TOKEN`: token de acceso de la app.
-- `PHONE_NUMBER_ID`: ID del numero de telefono.
+- `WHATSAPP_TOKEN`: token global (solo si usas sync de templates global).
+- `PHONE_NUMBER_ID`: ID global (solo si usas sync de templates global).
 - `VERIFY_TOKEN`: token para verificacion del webhook.
 - `WHATSAPP_APP_SECRET`: secreto para validar firma (opcional).
-- `WHATSAPP_BUSINESS_ACCOUNT_ID`: WABA para sincronizar templates.
+- `WHATSAPP_BUSINESS_ACCOUNT_ID`: WABA global (solo si usas sync de templates global).
 - `ADMIN_PHONE_E164`: telefono admin (comandos BOT/CERRAR).
 
 ### Odoo JSON-RPC
 
-- `ODOO_BASE_URL`: base URL de Odoo (ej: `https://podopie.ngrok.io`).
+- `ODOO_BASE_URL`: base URL de Odoo (solo si usas Odoo global).
 - `ODOO_DB`
 - `ODOO_USERNAME`
 - `ODOO_PASSWORD`
 
 Compatibilidad (legacy): `ODOO_URL`, `ODOO_USER`, `ODOO_PASS`.
+Si usas Odoo por tenant, configura esos datos desde el panel SuperAdmin.
 
 ### Base de datos / Auth
 
@@ -136,6 +137,8 @@ node scripts/provision-tenant-db.js <TENANT_DB_URL>
 - Tokens de canal y DB URLs se guardan cifrados con `MASTER_KEY`.
 - Un tenant puede tener multiples lineas: registra varios Channels con el mismo `tenant_id`.
 - Las conversaciones se separan por linea: `wa_id + phone_number_id`.
+- Sync de templates usa el `waba_id` y token del Channel configurado en el panel.
+- Firma del webhook puede validarse con `app_secret` por Channel (opcional).
 
 ## Webhook
 
@@ -174,6 +177,7 @@ node scripts/provision-tenant-db.js <TENANT_DB_URL>
 - `POST /api/superadmin/tenants/:id/database`
 - `GET /api/superadmin/channels` / `POST /api/superadmin/channels` / `PATCH /api/superadmin/channels/:id`
 - `GET /api/superadmin/branding` / `PATCH /api/superadmin/branding`
+- `GET /api/superadmin/odoo` / `PATCH /api/superadmin/odoo`
 
 ## Paginas publicas para Meta
 

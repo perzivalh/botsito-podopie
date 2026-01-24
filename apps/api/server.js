@@ -50,9 +50,13 @@ const {
   CONVERSATION_SELECT,
   logAudit,
 } = require("./src/services/conversations");
-const { hasOdooConfig, getSessionInfo } = require("./src/services/odooClient");
+const {
+  hasOdooConfig,
+  getSessionInfo,
+  clearOdooConfigCache,
+} = require("./src/services/odooClient");
 
-const { VERIFY_TOKEN, ADMIN_PHONE_E164, WHATSAPP_BUSINESS_ACCOUNT_ID } = process.env;
+const { VERIFY_TOKEN, ADMIN_PHONE_E164 } = process.env;
 const PORT = process.env.PORT || 3000;
 const FRONTEND_ORIGIN =
   process.env.FRONTEND_ORIGIN || "http://localhost:5173";
@@ -428,16 +432,20 @@ async function getSettingsCached() {
   return value;
 }
 
-if (!hasOdooConfig()) {
-  logger.warn("odoo.config_missing", {
-    message: "Set ODOO_BASE_URL/ODOO_URL, ODOO_DB, ODOO_USERNAME/ODOO_USER, ODOO_PASSWORD/ODOO_PASS",
-  });
-} else {
-  const sessionInfo = getSessionInfo();
-  if (sessionInfo?.uid) {
-    logger.info("odoo.session_ready", sessionInfo);
+void (async () => {
+  try {
+    if (await hasOdooConfig()) {
+      const sessionInfo = await getSessionInfo();
+      if (sessionInfo?.uid) {
+        logger.info("odoo.session_ready", sessionInfo);
+      }
+    }
+  } catch (error) {
+    logger.warn("odoo.session_check_failed", {
+      message: error.message || error,
+    });
   }
-}
+})();
 
 let lastWebhook = null;
 
@@ -485,8 +493,9 @@ function logIncoming(message, payload) {
   });
 }
 
-function verifyWebhookSignature(req) {
-  if (!WHATSAPP_APP_SECRET) {
+function verifyWebhookSignature(req, appSecret) {
+  const secret = appSecret || WHATSAPP_APP_SECRET;
+  if (!secret) {
     return true;
   }
   const signature = req.headers["x-hub-signature-256"];
@@ -496,7 +505,7 @@ function verifyWebhookSignature(req) {
   const expected =
     "sha256=" +
     crypto
-      .createHmac("sha256", WHATSAPP_APP_SECRET)
+      .createHmac("sha256", secret)
       .update(req.rawBody)
       .digest("hex");
   if (signature.length !== expected.length) {
@@ -602,10 +611,15 @@ app.get("/webhook", (req, res) => {
 
 app.post("/webhook", async (req, res) => {
   const timestamp = new Date().toISOString();
-  if (!verifyWebhookSignature(req)) {
+  const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+  const messages = value?.messages;
+  const phoneNumberId = value?.metadata?.phone_number_id;
+  const channelConfig = await resolveChannelByPhoneNumberId(phoneNumberId);
+  if (!verifyWebhookSignature(req, channelConfig?.app_secret || null)) {
     logger.warn("webhook.signature_invalid", { timestamp });
     return res.sendStatus(403);
   }
+
   logger.info("webhook.hit", { timestamp });
   if (req.body && Object.keys(req.body).length > 0) {
     logger.info("webhook.payload", redactObject(req.body));
@@ -618,13 +632,9 @@ app.post("/webhook", async (req, res) => {
 
   res.status(200).send("EVENT_RECEIVED");
 
-  const value = req.body?.entry?.[0]?.changes?.[0]?.value;
-  const messages = value?.messages;
   if (!Array.isArray(messages) || messages.length === 0) {
     return;
   }
-
-  const phoneNumberId = value?.metadata?.phone_number_id;
   const tenantContext = await resolveTenantContextByPhoneNumberId(phoneNumberId);
   if (!tenantContext) {
     logger.warn("tenant.not_resolved", { phone_number_id: phoneNumberId });
@@ -895,7 +905,7 @@ app.get("/api/me", requireAuth, (req, res) => {
 app.get("/api/superadmin/tenants", requireAuth, requireSuperAdmin, async (req, res) => {
   const control = getControlClient();
   const tenants = await control.tenant.findMany({
-    include: { databases: true, branding: true },
+    include: { databases: true, branding: true, odoo_config: true },
     orderBy: { created_at: "desc" },
   });
   return res.json({
@@ -908,6 +918,7 @@ app.get("/api/superadmin/tenants", requireAuth, requireSuperAdmin, async (req, r
       created_at: tenant.created_at,
       has_database: Boolean(tenant.databases),
       has_branding: Boolean(tenant.branding),
+      has_odoo: Boolean(tenant.odoo_config),
     })),
   });
 });
@@ -996,6 +1007,7 @@ app.get("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req, 
       tenant_id: channel.tenant_id,
       provider: channel.provider,
       phone_number_id: channel.phone_number_id,
+      waba_id: channel.waba_id || null,
       created_at: channel.created_at,
     })),
   });
@@ -1004,8 +1016,10 @@ app.get("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req, 
 app.post("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req, res) => {
   const tenantId = req.body?.tenant_id;
   const phoneNumberId = (req.body?.phone_number_id || "").trim();
+  const wabaId = (req.body?.waba_id || "").trim();
   const verifyToken = (req.body?.verify_token || "").trim();
   const waToken = (req.body?.wa_token || "").trim();
+  const appSecret = (req.body?.app_secret || "").trim();
   if (!tenantId || !phoneNumberId || !verifyToken || !waToken) {
     return res.status(400).json({ error: "missing_fields" });
   }
@@ -1015,8 +1029,10 @@ app.post("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req,
       tenant_id: tenantId,
       provider: "whatsapp",
       phone_number_id: phoneNumberId,
+      waba_id: wabaId || null,
       verify_token: verifyToken,
       wa_token_encrypted: encryptString(waToken),
+      app_secret_encrypted: appSecret ? encryptString(appSecret) : null,
     },
   });
   clearChannelCache(channel.phone_number_id);
@@ -1026,6 +1042,7 @@ app.post("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req,
       tenant_id: channel.tenant_id,
       provider: channel.provider,
       phone_number_id: channel.phone_number_id,
+      waba_id: channel.waba_id || null,
       created_at: channel.created_at,
     },
   });
@@ -1046,6 +1063,14 @@ app.patch(
     if (req.body?.wa_token) {
       updates.wa_token_encrypted = encryptString(String(req.body.wa_token).trim());
     }
+    if (req.body?.waba_id !== undefined) {
+      const raw = String(req.body.waba_id || "").trim();
+      updates.waba_id = raw || null;
+    }
+    if (req.body?.app_secret !== undefined) {
+      const raw = String(req.body.app_secret || "").trim();
+      updates.app_secret_encrypted = raw ? encryptString(raw) : null;
+    }
     const control = getControlClient();
     const existing = await control.channel.findUnique({
       where: { id: req.params.id },
@@ -1064,6 +1089,7 @@ app.patch(
         tenant_id: channel.tenant_id,
         provider: channel.provider,
         phone_number_id: channel.phone_number_id,
+        waba_id: channel.waba_id || null,
         created_at: channel.created_at,
       },
     });
@@ -1106,6 +1132,95 @@ app.patch("/api/superadmin/branding", requireAuth, requireSuperAdmin, async (req
     },
   });
   return res.json({ branding });
+});
+
+app.get("/api/superadmin/odoo", requireAuth, requireSuperAdmin, async (req, res) => {
+  const tenantId = req.query.tenant_id;
+  if (!tenantId) {
+    return res.status(400).json({ error: "missing_tenant" });
+  }
+  const control = getControlClient();
+  const record = await control.odooConfig.findUnique({
+    where: { tenant_id: tenantId },
+  });
+  if (!record) {
+    return res.json({ odoo: null });
+  }
+  return res.json({
+    odoo: {
+      tenant_id: record.tenant_id,
+      base_url: record.base_url,
+      db_name: record.db_name,
+      username: record.username,
+      created_at: record.created_at,
+    },
+  });
+});
+
+app.patch("/api/superadmin/odoo", requireAuth, requireSuperAdmin, async (req, res) => {
+  const tenantId = req.body?.tenant_id;
+  const baseUrl = (req.body?.base_url || "").trim();
+  const dbName = (req.body?.db_name || "").trim();
+  const username = (req.body?.username || "").trim();
+  const password = (req.body?.password || "").trim();
+  if (!tenantId) {
+    return res.status(400).json({ error: "missing_tenant" });
+  }
+  const control = getControlClient();
+  const existing = await control.odooConfig.findUnique({
+    where: { tenant_id: tenantId },
+  });
+  if (!existing) {
+    if (!baseUrl || !dbName || !username || !password) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    const created = await control.odooConfig.create({
+      data: {
+        tenant_id: tenantId,
+        base_url: baseUrl,
+        db_name: dbName,
+        username,
+        password_encrypted: encryptString(password),
+      },
+    });
+    clearOdooConfigCache(tenantId);
+    return res.json({
+      odoo: {
+        tenant_id: created.tenant_id,
+        base_url: created.base_url,
+        db_name: created.db_name,
+        username: created.username,
+        created_at: created.created_at,
+      },
+    });
+  }
+  const updates = {};
+  if (baseUrl) {
+    updates.base_url = baseUrl;
+  }
+  if (dbName) {
+    updates.db_name = dbName;
+  }
+  if (username) {
+    updates.username = username;
+  }
+  if (password) {
+    updates.password_encrypted = encryptString(password);
+  }
+  const updated = await control.odooConfig.update({
+    where: { tenant_id: tenantId },
+    data: updates,
+  });
+  clearOdooConfigCache(tenantId);
+  return res.json({
+    odoo: {
+      tenant_id: updated.tenant_id,
+      base_url: updated.base_url,
+      db_name: updated.db_name,
+      username: updated.username,
+      created_at: updated.created_at,
+    },
+  });
 });
 
 app.get("/api/role-permissions", requireAuth, async (req, res) => {
@@ -1352,17 +1467,16 @@ function extractTemplatePreview(template) {
   return template.name || "Template";
 }
 
-async function syncTemplatesFromWhatsApp() {
-  if (!WHATSAPP_BUSINESS_ACCOUNT_ID) {
+async function syncTemplatesFromWhatsApp({ wabaId, waToken }) {
+  if (!wabaId) {
     throw new Error("missing_waba_id");
   }
-  const token = process.env.WHATSAPP_TOKEN;
-  if (!token) {
+  if (!waToken) {
     throw new Error("missing_whatsapp_token");
   }
-  const url = `https://graph.facebook.com/v22.0/${WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates?limit=200`;
+  const url = `https://graph.facebook.com/v22.0/${wabaId}/message_templates?limit=200`;
   const response = await axios.get(url, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${waToken}` },
   });
   const templates = response.data?.data || [];
   for (const template of templates) {
@@ -2059,7 +2173,24 @@ app.post(
   requireRole(["admin", "marketing"]),
   async (req, res) => {
     try {
-      const count = await syncTemplatesFromWhatsApp();
+      const requestedPhoneNumberId = (req.body?.phone_number_id || "").trim();
+      const tenantId = getTenantContext().tenantId;
+      let channelConfig = null;
+      if (requestedPhoneNumberId) {
+        channelConfig = await resolveChannelByPhoneNumberId(requestedPhoneNumberId);
+        if (!channelConfig || channelConfig.tenantId !== tenantId) {
+          return res.status(400).json({ error: "missing_channel" });
+        }
+      } else {
+        channelConfig = getTenantContext().channel || null;
+        if (!channelConfig) {
+          return res.status(400).json({ error: "missing_channel" });
+        }
+      }
+      const count = await syncTemplatesFromWhatsApp({
+        wabaId: channelConfig.waba_id,
+        waToken: channelConfig.wa_token,
+      });
       await logAudit({
         userId: req.user.id,
         action: "template.synced",

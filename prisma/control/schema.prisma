@@ -19,6 +19,7 @@ model Tenant {
   channels   Channel[]
   users      UserControl[]
   branding   Branding?
+  odoo_config OdooConfig?
   audits     AuditLogControl[]
 }
 
@@ -35,8 +36,10 @@ model Channel {
   tenant_id        String
   provider         String   @default("whatsapp")
   phone_number_id  String   @unique
+  waba_id          String?
   verify_token     String
   wa_token_encrypted String
+  app_secret_encrypted String?
   created_at       DateTime @default(now())
   tenant           Tenant   @relation(fields: [tenant_id], references: [id])
 
@@ -82,4 +85,15 @@ model AuditLogControl {
   @@index([tenant_id])
   @@index([user_id])
   @@index([action])
+}
+
+model OdooConfig {
+  id                 String   @id @default(cuid())
+  tenant_id          String   @unique
+  base_url           String
+  db_name            String
+  username           String
+  password_encrypted String
+  created_at         DateTime @default(now())
+  tenant             Tenant   @relation(fields: [tenant_id], references: [id])
 }

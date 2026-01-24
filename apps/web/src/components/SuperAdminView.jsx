@@ -24,14 +24,18 @@ function SuperAdminView() {
   const [channelForm, setChannelForm] = useState({
     tenant_id: "",
     phone_number_id: "",
+    waba_id: "",
     verify_token: "",
     wa_token: "",
+    app_secret: "",
   });
   const [channelUpdateForm, setChannelUpdateForm] = useState({
     channel_id: "",
     phone_number_id: "",
+    waba_id: "",
     verify_token: "",
     wa_token: "",
+    app_secret: "",
   });
   const [brandingForm, setBrandingForm] = useState({
     tenant_id: "",
@@ -39,6 +43,13 @@ function SuperAdminView() {
     logo_url: "",
     colors: "",
     timezone: "",
+  });
+  const [odooForm, setOdooForm] = useState({
+    tenant_id: "",
+    base_url: "",
+    db_name: "",
+    username: "",
+    password: "",
   });
 
   async function loadData() {
@@ -132,8 +143,10 @@ function SuperAdminView() {
       setChannelForm({
         tenant_id: channelForm.tenant_id,
         phone_number_id: "",
+        waba_id: "",
         verify_token: "",
         wa_token: "",
+        app_secret: "",
       });
       await loadData();
     } catch (err) {
@@ -147,16 +160,20 @@ function SuperAdminView() {
       setChannelUpdateForm({
         channel_id: "",
         phone_number_id: "",
+        waba_id: "",
         verify_token: "",
         wa_token: "",
+        app_secret: "",
       });
       return;
     }
     setChannelUpdateForm({
       channel_id: selected.id,
       phone_number_id: selected.phone_number_id || "",
+      waba_id: selected.waba_id || "",
       verify_token: "",
       wa_token: "",
+      app_secret: "",
     });
   }
 
@@ -169,8 +186,10 @@ function SuperAdminView() {
     try {
       await apiPatch(`/api/superadmin/channels/${channelUpdateForm.channel_id}`, {
         phone_number_id: channelUpdateForm.phone_number_id,
+        waba_id: channelUpdateForm.waba_id,
         verify_token: channelUpdateForm.verify_token || undefined,
         wa_token: channelUpdateForm.wa_token || undefined,
+        app_secret: channelUpdateForm.app_secret || undefined,
       });
       await loadData();
     } catch (err) {
@@ -204,6 +223,66 @@ function SuperAdminView() {
       await loadData();
     } catch (err) {
       setError(err.message || "No se pudo guardar branding.");
+    }
+  }
+
+  async function loadOdooConfig(tenantId) {
+    if (!tenantId) {
+      setOdooForm({
+        tenant_id: "",
+        base_url: "",
+        db_name: "",
+        username: "",
+        password: "",
+      });
+      return;
+    }
+    try {
+      const response = await apiGet(`/api/superadmin/odoo?tenant_id=${tenantId}`);
+      if (response.odoo) {
+        setOdooForm({
+          tenant_id: tenantId,
+          base_url: response.odoo.base_url || "",
+          db_name: response.odoo.db_name || "",
+          username: response.odoo.username || "",
+          password: "",
+        });
+      } else {
+        setOdooForm({
+          tenant_id: tenantId,
+          base_url: "",
+          db_name: "",
+          username: "",
+          password: "",
+        });
+      }
+      setError("");
+    } catch (err) {
+      setError(err.message || "No se pudo cargar Odoo.");
+    }
+  }
+
+  async function handleSaveOdoo(event) {
+    event.preventDefault();
+    if (!odooForm.tenant_id) {
+      setError("Selecciona un tenant.");
+      return;
+    }
+    try {
+      const payload = {
+        tenant_id: odooForm.tenant_id,
+        base_url: odooForm.base_url,
+        db_name: odooForm.db_name,
+        username: odooForm.username,
+      };
+      if (odooForm.password) {
+        payload.password = odooForm.password;
+      }
+      await apiPatch("/api/superadmin/odoo", payload);
+      setOdooForm({ ...odooForm, password: "" });
+      await loadData();
+    } catch (err) {
+      setError(err.message || "No se pudo guardar Odoo.");
     }
   }
 
@@ -275,7 +354,8 @@ function SuperAdminView() {
                 <div className="settings-meta">ID: {tenant.id}</div>
               </div>
               <div>
-                DB: {tenant.has_database ? "ok" : "pendiente"} ·{" "}
+                DB: {tenant.has_database ? "ok" : "pendiente"} · Odoo:{" "}
+                {tenant.has_odoo ? "ok" : "pendiente"} ·{" "}
                 {tenant.is_active ? "activo" : "inactivo"}
               </div>
             </div>
@@ -431,6 +511,19 @@ function SuperAdminView() {
             />
           </div>
           <div className="settings-field">
+            <label>WABA ID</label>
+            <input
+              value={channelForm.waba_id}
+              onChange={(event) =>
+                setChannelForm({
+                  ...channelForm,
+                  waba_id: event.target.value,
+                })
+              }
+              placeholder="2003704870486290"
+            />
+          </div>
+          <div className="settings-field">
             <label>Verify Token</label>
             <input
               value={channelForm.verify_token}
@@ -456,6 +549,19 @@ function SuperAdminView() {
               placeholder="token"
             />
           </div>
+          <div className="settings-field">
+            <label>App Secret (opcional)</label>
+            <input
+              value={channelForm.app_secret}
+              onChange={(event) =>
+                setChannelForm({
+                  ...channelForm,
+                  app_secret: event.target.value,
+                })
+              }
+              placeholder="app-secret"
+            />
+          </div>
           <button className="settings-primary" type="submit">
             Crear canal
           </button>
@@ -465,7 +571,10 @@ function SuperAdminView() {
             <div key={channel.id} className="settings-row">
               <div>
                 <strong>{channel.phone_number_id}</strong>
-                <div className="settings-meta">ID: {channel.id}</div>
+                <div className="settings-meta">
+                  ID: {channel.id}
+                  {channel.waba_id ? ` · WABA: ${channel.waba_id}` : ""}
+                </div>
               </div>
               <div>{channel.provider}</div>
             </div>
@@ -499,6 +608,18 @@ function SuperAdminView() {
             />
           </div>
           <div className="settings-field">
+            <label>WABA ID</label>
+            <input
+              value={channelUpdateForm.waba_id}
+              onChange={(event) =>
+                setChannelUpdateForm({
+                  ...channelUpdateForm,
+                  waba_id: event.target.value,
+                })
+              }
+            />
+          </div>
+          <div className="settings-field">
             <label>Verify Token (nuevo)</label>
             <input
               value={channelUpdateForm.verify_token}
@@ -518,6 +639,18 @@ function SuperAdminView() {
                 setChannelUpdateForm({
                   ...channelUpdateForm,
                   wa_token: event.target.value,
+                })
+              }
+            />
+          </div>
+          <div className="settings-field">
+            <label>App Secret (nuevo)</label>
+            <input
+              value={channelUpdateForm.app_secret}
+              onChange={(event) =>
+                setChannelUpdateForm({
+                  ...channelUpdateForm,
+                  app_secret: event.target.value,
                 })
               }
             />
@@ -609,6 +742,75 @@ function SuperAdminView() {
           </div>
           <button className="settings-primary" type="submit">
             Guardar branding
+          </button>
+        </form>
+      </div>
+
+      <div className="dash-card">
+        <div className="dash-card-header">
+          <div>
+            <div className="dash-card-title">Odoo</div>
+            <div className="dash-card-subtitle">Config por tenant</div>
+          </div>
+        </div>
+        <form className="settings-form" onSubmit={handleSaveOdoo}>
+          <div className="settings-field">
+            <label>Tenant</label>
+            <select
+              value={odooForm.tenant_id}
+              onChange={(event) => loadOdooConfig(event.target.value)}
+            >
+              <option value="">Seleccionar</option>
+              {tenants.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="settings-field">
+            <label>Odoo Base URL</label>
+            <input
+              value={odooForm.base_url}
+              onChange={(event) =>
+                setOdooForm({ ...odooForm, base_url: event.target.value })
+              }
+              placeholder="https://mi-odoo.com"
+            />
+          </div>
+          <div className="settings-field">
+            <label>Odoo DB</label>
+            <input
+              value={odooForm.db_name}
+              onChange={(event) =>
+                setOdooForm({ ...odooForm, db_name: event.target.value })
+              }
+              placeholder="mi_db"
+            />
+          </div>
+          <div className="settings-field">
+            <label>Odoo User</label>
+            <input
+              value={odooForm.username}
+              onChange={(event) =>
+                setOdooForm({ ...odooForm, username: event.target.value })
+              }
+              placeholder="usuario@empresa.com"
+            />
+          </div>
+          <div className="settings-field">
+            <label>Odoo Password</label>
+            <input
+              type="password"
+              value={odooForm.password}
+              onChange={(event) =>
+                setOdooForm({ ...odooForm, password: event.target.value })
+              }
+              placeholder="********"
+            />
+          </div>
+          <button className="settings-primary" type="submit">
+            Guardar Odoo
           </button>
         </form>
       </div>

@@ -1,35 +1,126 @@
 const axios = require("axios");
-
-const {
-  ODOO_BASE_URL,
-  ODOO_URL,
-  ODOO_DB,
-  ODOO_USERNAME,
-  ODOO_USER,
-  ODOO_PASSWORD,
-  ODOO_PASS,
-} = process.env;
-
-const baseUrl = (ODOO_BASE_URL || ODOO_URL || "").replace(/\/+$/, "");
-const username = ODOO_USERNAME || ODOO_USER || "";
-const password = ODOO_PASSWORD || ODOO_PASS || "";
-
-const client = axios.create({
-  baseURL: baseUrl,
-  timeout: 15000,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
+const { getTenantContext } = require("../tenancy/tenantContext");
+const { getControlClient } = require("../control/controlClient");
+const { decryptString } = require("../core/crypto");
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
-let sessionCookie = null;
-let sessionUid = null;
-let sessionReadyAt = null;
-let sessionExpiresAt = 0;
+const CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
 
-function hasOdooConfig() {
-  return Boolean(baseUrl && ODOO_DB && username && password);
+const odooConfigCache = new Map();
+const clientCache = new Map();
+
+function normalizeBaseUrl(value) {
+  return (value || "").toString().replace(/\/+$/, "");
+}
+
+function getEnvConfig() {
+  const baseUrl = normalizeBaseUrl(
+    process.env.ODOO_BASE_URL || process.env.ODOO_URL || ""
+  );
+  const dbName = process.env.ODOO_DB || "";
+  const username = process.env.ODOO_USERNAME || process.env.ODOO_USER || "";
+  const password = process.env.ODOO_PASSWORD || process.env.ODOO_PASS || "";
+  if (!baseUrl || !dbName || !username || !password) {
+    return null;
+  }
+  return { baseUrl, dbName, username, password };
+}
+
+function isFresh(entry) {
+  return entry && Date.now() - entry.cachedAt < CONFIG_CACHE_TTL_MS;
+}
+
+async function getTenantOdooConfig(tenantId) {
+  if (!tenantId) {
+    return null;
+  }
+  if (!process.env.CONTROL_DB_URL) {
+    return null;
+  }
+  const cached = odooConfigCache.get(tenantId);
+  if (isFresh(cached)) {
+    return cached.value;
+  }
+  const control = getControlClient();
+  const record = await control.odooConfig.findUnique({
+    where: { tenant_id: tenantId },
+  });
+  if (!record) {
+    odooConfigCache.set(tenantId, { value: null, cachedAt: Date.now() });
+    return null;
+  }
+  const config = {
+    baseUrl: normalizeBaseUrl(record.base_url),
+    dbName: record.db_name,
+    username: record.username,
+    password: decryptString(record.password_encrypted),
+  };
+  odooConfigCache.set(tenantId, { value: config, cachedAt: Date.now() });
+  return config;
+}
+
+async function resolveOdooConfig() {
+  const tenantId = getTenantContext().tenantId || null;
+  if (tenantId) {
+    if (!process.env.CONTROL_DB_URL) {
+      return { tenantId, config: null };
+    }
+    const config = await getTenantOdooConfig(tenantId);
+    return { tenantId, config };
+  }
+  return { tenantId: null, config: getEnvConfig() };
+}
+
+function getSessionKey(tenantId, config) {
+  if (tenantId) {
+    return tenantId;
+  }
+  return `${config.baseUrl}|${config.dbName}|${config.username}`;
+}
+
+function getSignature(config) {
+  return `${config.baseUrl}|${config.dbName}|${config.username}|${config.password}`;
+}
+
+function getClientState(tenantId, config) {
+  const key = getSessionKey(tenantId, config);
+  const signature = getSignature(config);
+  const cached = clientCache.get(key);
+  if (cached && cached.signature === signature) {
+    return cached;
+  }
+  const client = axios.create({
+    baseURL: config.baseUrl,
+    timeout: 15000,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+  const state = {
+    key,
+    signature,
+    config,
+    client,
+    sessionCookie: null,
+    sessionUid: null,
+    sessionReadyAt: null,
+    sessionExpiresAt: 0,
+  };
+  clientCache.set(key, state);
+  return state;
+}
+
+async function getOdooState() {
+  const resolved = await resolveOdooConfig();
+  if (!resolved.config) {
+    throw new Error("Odoo config missing");
+  }
+  return getClientState(resolved.tenantId, resolved.config);
+}
+
+async function hasOdooConfig() {
+  const resolved = await resolveOdooConfig();
+  return Boolean(resolved.config);
 }
 
 function digitsOnly(value) {
@@ -91,17 +182,14 @@ function isSessionExpired(error) {
   );
 }
 
-async function loginViaWeb() {
-  if (!hasOdooConfig()) {
-    throw new Error("Odoo config missing");
-  }
-
+async function loginViaWeb(state) {
+  const { config, client } = state;
   const payload = {
     jsonrpc: "2.0",
     params: {
-      db: ODOO_DB,
-      login: username,
-      password,
+      db: config.dbName,
+      login: config.username,
+      password: config.password,
     },
     id: Date.now(),
   };
@@ -116,21 +204,22 @@ async function loginViaWeb() {
     throw new Error("Odoo login missing uid");
   }
 
-  sessionUid = result.uid;
-  sessionCookie = getCookieHeader(response.headers["set-cookie"]);
-  sessionReadyAt = new Date().toISOString();
-  sessionExpiresAt = Date.now() + SESSION_TTL_MS;
-  return sessionUid;
+  state.sessionUid = result.uid;
+  state.sessionCookie = getCookieHeader(response.headers["set-cookie"]);
+  state.sessionReadyAt = new Date().toISOString();
+  state.sessionExpiresAt = Date.now() + SESSION_TTL_MS;
+  return state.sessionUid;
 }
 
-async function loginViaJsonRpc() {
+async function loginViaJsonRpc(state) {
+  const { config, client } = state;
   const payload = {
     jsonrpc: "2.0",
     method: "call",
     params: {
       service: "web",
       method: "session_authenticate",
-      args: [ODOO_DB, username, password],
+      args: [config.dbName, config.username, config.password],
     },
     id: Date.now(),
   };
@@ -144,33 +233,35 @@ async function loginViaJsonRpc() {
   if (!uid) {
     throw new Error("Odoo login missing uid");
   }
-  sessionUid = uid;
-  sessionCookie = getCookieHeader(response.headers["set-cookie"]);
-  sessionReadyAt = new Date().toISOString();
-  sessionExpiresAt = Date.now() + SESSION_TTL_MS;
-  return sessionUid;
+  state.sessionUid = uid;
+  state.sessionCookie = getCookieHeader(response.headers["set-cookie"]);
+  state.sessionReadyAt = new Date().toISOString();
+  state.sessionExpiresAt = Date.now() + SESSION_TTL_MS;
+  return state.sessionUid;
 }
 
-async function odooLogin() {
+async function odooLogin(state) {
   try {
-    return await loginViaWeb();
+    return await loginViaWeb(state);
   } catch (error) {
-    return loginViaJsonRpc();
+    return loginViaJsonRpc(state);
   }
 }
 
-async function ensureSession() {
-  if (!sessionCookie || !sessionUid || Date.now() > sessionExpiresAt) {
-    await odooLogin();
+async function ensureSession(state) {
+  if (
+    !state.sessionCookie ||
+    !state.sessionUid ||
+    Date.now() > state.sessionExpiresAt
+  ) {
+    await odooLogin(state);
   }
 }
 
 async function callKw(model, method, args = [], kwargs = {}) {
-  if (!hasOdooConfig()) {
-    throw new Error("Odoo config missing");
-  }
-
-  await ensureSession();
+  const state = await getOdooState();
+  const { client } = state;
+  await ensureSession(state);
 
   const payload = {
     jsonrpc: "2.0",
@@ -186,7 +277,7 @@ async function callKw(model, method, args = [], kwargs = {}) {
 
   try {
     const response = await client.post("/web/dataset/call_kw", payload, {
-      headers: sessionCookie ? { Cookie: sessionCookie } : undefined,
+      headers: state.sessionCookie ? { Cookie: state.sessionCookie } : undefined,
     });
     if (response.data?.error) {
       throw response.data.error;
@@ -194,11 +285,11 @@ async function callKw(model, method, args = [], kwargs = {}) {
     return response.data?.result;
   } catch (error) {
     if (isSessionExpired(error)) {
-      sessionCookie = null;
-      sessionUid = null;
-      await odooLogin();
+      state.sessionCookie = null;
+      state.sessionUid = null;
+      await odooLogin(state);
       const retry = await client.post("/web/dataset/call_kw", payload, {
-        headers: sessionCookie ? { Cookie: sessionCookie } : undefined,
+        headers: state.sessionCookie ? { Cookie: state.sessionCookie } : undefined,
       });
       if (retry.data?.error) {
         throw retry.data.error;
@@ -207,27 +298,36 @@ async function callKw(model, method, args = [], kwargs = {}) {
     }
     const status = error?.response?.status;
     if (status === 404 || status === 405) {
-      return callKwViaJsonRpc(model, method, args, kwargs);
+      return callKwViaJsonRpc(state, model, method, args, kwargs);
     }
     throw error;
   }
 }
 
-async function callKwViaJsonRpc(model, method, args = [], kwargs = {}) {
-  await ensureSession();
+async function callKwViaJsonRpc(state, model, method, args = [], kwargs = {}) {
+  const { config, client } = state;
+  await ensureSession(state);
   const payload = {
     jsonrpc: "2.0",
     method: "call",
     params: {
       service: "object",
       method: "execute_kw",
-      args: [ODOO_DB, sessionUid, password, model, method, args, kwargs],
+      args: [
+        config.dbName,
+        state.sessionUid,
+        config.password,
+        model,
+        method,
+        args,
+        kwargs,
+      ],
     },
     id: Date.now(),
   };
 
   const response = await client.post("/jsonrpc", payload, {
-    headers: sessionCookie ? { Cookie: sessionCookie } : undefined,
+    headers: state.sessionCookie ? { Cookie: state.sessionCookie } : undefined,
   });
   if (response.data?.error) {
     throw response.data.error;
@@ -558,9 +658,26 @@ module.exports = {
   findPatientByCI,
   findPatientByPhone,
   getPosOrdersWithLines,
-  getSessionInfo: () => ({
-    uid: sessionUid,
-    readyAt: sessionReadyAt,
-    expiresAt: sessionExpiresAt,
-  }),
+  getSessionInfo: async () => {
+    try {
+      const resolved = await resolveOdooConfig();
+      if (!resolved.config) {
+        return null;
+      }
+      const state = getClientState(resolved.tenantId, resolved.config);
+      return {
+        uid: state.sessionUid,
+        readyAt: state.sessionReadyAt,
+        expiresAt: state.sessionExpiresAt,
+      };
+    } catch (error) {
+      return null;
+    }
+  },
+  clearOdooConfigCache: (tenantId) => {
+    if (tenantId) {
+      odooConfigCache.delete(tenantId);
+      clientCache.delete(tenantId);
+    }
+  },
 };

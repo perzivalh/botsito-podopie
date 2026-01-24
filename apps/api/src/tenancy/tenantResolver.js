@@ -62,8 +62,12 @@ async function resolveChannelByPhoneNumberId(phoneNumberId) {
   const value = {
     tenantId: channel.tenant_id,
     phone_number_id: channel.phone_number_id,
+    waba_id: channel.waba_id || null,
     verify_token: channel.verify_token,
     wa_token: decryptString(channel.wa_token_encrypted),
+    app_secret: channel.app_secret_encrypted
+      ? decryptString(channel.app_secret_encrypted)
+      : null,
   };
   channelCache.set(phoneNumberId, { value, cachedAt: Date.now() });
   return value;
@@ -91,9 +95,14 @@ async function resolveTenantContextById(tenantId) {
       prisma: getTenantClient(tenantId, dbUrl),
       channel: channel
         ? {
+            tenantId,
             phone_number_id: channel.phone_number_id,
+            waba_id: channel.waba_id || null,
             verify_token: channel.verify_token,
             wa_token: decryptString(channel.wa_token_encrypted),
+            app_secret: channel.app_secret_encrypted
+              ? decryptString(channel.app_secret_encrypted)
+              : null,
           }
         : null,
     };
