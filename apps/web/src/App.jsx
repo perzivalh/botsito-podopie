@@ -1,5 +1,5 @@
 ﻿
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost, setToken } from "./api";
 import { connectSocket } from "./socket";
 import NavRail from "./components/NavRail.jsx";
@@ -356,18 +356,6 @@ function UserIcon(props) {
   );
 }
 
-function ShieldIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
-      <path
-        d="M12 3l7 3v5.5c0 5-3.5 8.8-7 10.5-3.5-1.7-7-5.5-7-10.5V6l7-3Z"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function SearchIcon(props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
@@ -435,6 +423,9 @@ function App() {
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [loginError, setLoginError] = useState("");
   const [view, setView] = useState("chats");
+  const [pathname, setPathname] = useState(() =>
+    typeof window !== "undefined" ? window.location.pathname : "/"
+  );
   const [theme, setTheme] = useState(
     () => localStorage.getItem("theme") || "light"
   );
@@ -463,6 +454,7 @@ function App() {
     tag: "",
     search: "",
   });
+  const isSuperAdminRoute = pathname.startsWith("/superadmin");
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -539,6 +531,23 @@ function App() {
   });
   const [auditLogs, setAuditLogs] = useState([]);
 
+  const navigateTo = useCallback((nextPath, options = {}) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const target = nextPath || "/";
+    if (window.location.pathname === target) {
+      setPathname(target);
+      return;
+    }
+    if (options.replace) {
+      window.history.replaceState({}, "", target);
+    } else {
+      window.history.pushState({}, "", target);
+    }
+    setPathname(target);
+  }, []);
+
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === campaignForm.template_id),
     [templates, campaignForm.template_id]
@@ -547,6 +556,17 @@ function App() {
     const note = [...messages].reverse().find((message) => message.type === "note");
     return note?.text || "";
   }, [messages]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const handlePopState = () => {
+      setPathname(window.location.pathname || "/");
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
     if (token) {
@@ -603,6 +623,21 @@ function App() {
       active = false;
     };
   }, [token]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    if (user.role === "superadmin") {
+      if (!isSuperAdminRoute) {
+        navigateTo("/superadmin", { replace: true });
+      }
+      return;
+    }
+    if (isSuperAdminRoute) {
+      navigateTo("/", { replace: true });
+    }
+  }, [user, isSuperAdminRoute, navigateTo]);
 
   useEffect(() => {
     if (!user) {
@@ -874,7 +909,13 @@ function App() {
       });
       setTokenState(result.token);
       setUser(result.user);
-      setView("chats");
+      const isSuperAdmin = result.user.role === "superadmin";
+      setView(isSuperAdmin ? "superadmin" : "chats");
+      if (isSuperAdmin) {
+        navigateTo("/superadmin", { replace: true });
+      } else if (isSuperAdminRoute) {
+        navigateTo("/", { replace: true });
+      }
     } catch (error) {
       setLoginError("Credenciales invalidas");
     }
@@ -893,6 +934,7 @@ function App() {
     setRolePermissionsDirty(false);
     setRolePermissionsSaving(false);
     rolePermissionsVersion.current = 0;
+    navigateTo("/", { replace: true });
   }
 
   function handleRolePermissionsUpdate(updater) {
@@ -1355,13 +1397,16 @@ function App() {
   (metrics?.status_counts || []).forEach((item) => {
     statusCounts[item.status] = item._count.status;
   });
+  const loginSubtitle = isSuperAdminRoute
+    ? "Acceso al control plane"
+    : "Acceso a bandeja multiusuario";
 
   if (!token || !user) {
     return (
       <div className="login-shell">
         <div className="login-card">
           <div className="login-title">Perzivalh</div>
-          <div className="login-subtitle">Acceso a bandeja multiusuario</div>
+          <div className="login-subtitle">{loginSubtitle}</div>
           <form className="login-form" onSubmit={handleLogin}>
             <label className="field">
               <span>Email</span>
@@ -1398,13 +1443,20 @@ function App() {
     );
   }
 
+  if (user?.role === "superadmin" && isSuperAdminRoute) {
+    return (
+      <main className="superadmin-page">
+        <SuperAdminView />
+      </main>
+    );
+  }
+
   const roleAccess =
     rolePermissions?.[user.role] || DEFAULT_ROLE_PERMISSIONS[user.role];
   const canViewChats = hasPermission(roleAccess, "modules", "chat");
   const canViewDashboard = hasPermission(roleAccess, "modules", "dashboard");
   const canViewCampaigns = hasPermission(roleAccess, "modules", "campaigns");
   const canViewAdmin = hasPermission(roleAccess, "modules", "settings");
-  const isSuperAdmin = hasRole(user, ["superadmin"]);
   const isAdmin = hasRole(user, ["admin"]);
   const canManageStatus = hasPermission(roleAccess, "modules", "chat", "write");
   const quickActions = ["Confirmar Cita", "Solicitar Resultados", "Urgencia"];
@@ -1443,14 +1495,6 @@ function App() {
       enabled: canViewAdmin,
     },
   ];
-  if (isSuperAdmin) {
-    navItems.push({
-      id: "superadmin",
-      label: "SuperAdmin",
-      icon: ShieldIcon,
-      enabled: true,
-    });
-  }
   const messageBlocks = [];
   let lastDayKey = "";
   messages.forEach((message) => {
