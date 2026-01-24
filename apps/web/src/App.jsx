@@ -608,12 +608,18 @@ function App() {
     if (!user) {
       return;
     }
+    if (user.role === "superadmin") {
+      return;
+    }
     void loadUsers();
     void loadTags();
   }, [user]);
 
   useEffect(() => {
     if (!user) {
+      return;
+    }
+    if (user.role === "superadmin") {
       return;
     }
     void loadRolePermissions();
@@ -623,11 +629,17 @@ function App() {
     if (!user || view !== "chats") {
       return;
     }
+    if (user.role === "superadmin") {
+      return;
+    }
     void loadConversations();
   }, [user, view, filters]);
 
   useEffect(() => {
     if (!user) {
+      return;
+    }
+    if (user.role === "superadmin") {
       return;
     }
     if (view === "dashboard") {
@@ -679,7 +691,7 @@ function App() {
       hasPermission(roleAccess, "settings", section)
     );
     if (!allowed.length) {
-      setView("chats");
+      setView(result.user.role === "superadmin" ? "superadmin" : "chats");
       return;
     }
     if (!allowed.includes(settingsSection)) {
@@ -689,6 +701,9 @@ function App() {
 
   useEffect(() => {
     if (!token) {
+      return;
+    }
+    if (user?.role === "superadmin") {
       return;
     }
     const socket = connectSocket(token);
