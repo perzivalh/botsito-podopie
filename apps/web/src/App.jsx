@@ -419,6 +419,11 @@ function SendIcon(props) {
 
 function App() {
   const [token, setTokenState] = useState(localStorage.getItem("token") || "");
+  const [superadminToken, setSuperadminToken] = useState(() =>
+    typeof window !== "undefined"
+      ? localStorage.getItem("superadmin_token") || ""
+      : ""
+  );
   const [user, setUser] = useState(null);
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [loginError, setLoginError] = useState("");
@@ -909,6 +914,8 @@ function App() {
       });
       setTokenState(result.token);
       setUser(result.user);
+      setSuperadminToken("");
+      localStorage.removeItem("superadmin_token");
       const isSuperAdmin = result.user.role === "superadmin";
       setView(isSuperAdmin ? "superadmin" : "chats");
       if (isSuperAdmin) {
@@ -934,7 +941,39 @@ function App() {
     setRolePermissionsDirty(false);
     setRolePermissionsSaving(false);
     rolePermissionsVersion.current = 0;
+    setSuperadminToken("");
+    localStorage.removeItem("superadmin_token");
     navigateTo("/", { replace: true });
+  }
+
+  async function handleImpersonateTenant(tenantId) {
+    const result = await apiPost(`/api/superadmin/tenants/${tenantId}/impersonate`);
+    if (!superadminToken && token) {
+      localStorage.setItem("superadmin_token", token);
+      setSuperadminToken(token);
+    }
+    setTokenState(result.token);
+    setUser(result.user);
+    setView("chats");
+    navigateTo("/", { replace: true });
+  }
+
+  function handleReturnToSuperadmin() {
+    const stored =
+      superadminToken ||
+      (typeof window !== "undefined"
+        ? localStorage.getItem("superadmin_token")
+        : "");
+    if (!stored) {
+      handleLogout();
+      return;
+    }
+    localStorage.removeItem("superadmin_token");
+    setSuperadminToken("");
+    setTokenState(stored);
+    setUser(null);
+    setView("chats");
+    navigateTo("/superadmin", { replace: true });
   }
 
   function handleRolePermissionsUpdate(updater) {
@@ -1446,7 +1485,12 @@ function App() {
   if (user?.role === "superadmin" && isSuperAdminRoute) {
     return (
       <main className="superadmin-page">
-        <SuperAdminView route={pathname} onNavigate={navigateTo} />
+        <SuperAdminView
+          route={pathname}
+          onNavigate={navigateTo}
+          onImpersonateTenant={handleImpersonateTenant}
+          onLogout={handleLogout}
+        />
       </main>
     );
   }
@@ -1524,6 +1568,8 @@ function App() {
     );
   });
 
+  const canReturnToSuperadmin = Boolean(superadminToken) && user.role !== "superadmin";
+
   return (
     <div className={`app-shell ${view === "admin" ? "admin-shell" : ""}`}>
       <NavRail
@@ -1536,6 +1582,8 @@ function App() {
         isProfileOpen={isProfileOpen}
         onToggleProfile={() => setIsProfileOpen((prev) => !prev)}
         onLogout={handleLogout}
+        onReturnToSuperadmin={handleReturnToSuperadmin}
+        showReturnToSuperadmin={canReturnToSuperadmin}
         getInitial={getInitial}
         SunIcon={SunIcon}
         MoonIcon={MoonIcon}
@@ -1582,7 +1630,10 @@ function App() {
         />
       ) : view === "superadmin" ? (
         <main className="content content-page">
-          <SuperAdminView />
+          <SuperAdminView
+            onImpersonateTenant={handleImpersonateTenant}
+            onLogout={handleLogout}
+          />
         </main>
       ) : (
         <main

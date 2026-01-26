@@ -99,7 +99,12 @@ function ArrowRightIcon(props) {
   );
 }
 
-function SuperAdminView({ route = "/superadmin", onNavigate }) {
+function SuperAdminView({
+  route = "/superadmin",
+  onNavigate,
+  onImpersonateTenant,
+  onLogout = () => {},
+}) {
   const [tenants, setTenants] = useState([]);
   const [channels, setChannels] = useState([]);
   const [tenantSearch, setTenantSearch] = useState("");
@@ -107,6 +112,7 @@ function SuperAdminView({ route = "/superadmin", onNavigate }) {
   const [statusNote, setStatusNote] = useState("Verificacion de red: sistema ok");
   const [provisionForm, setProvisionForm] = useState(EMPTY_PROVISION);
   const [provisionBusy, setProvisionBusy] = useState(false);
+  const [impersonateBusyId, setImpersonateBusyId] = useState("");
   const [editTenantId, setEditTenantId] = useState("");
   const [editTenantActive, setEditTenantActive] = useState(true);
 
@@ -209,6 +215,21 @@ function SuperAdminView({ route = "/superadmin", onNavigate }) {
 
   function handleDashboardClick() {
     navigate("/superadmin");
+  }
+
+  async function handleImpersonateTenant(tenantId) {
+    if (!onImpersonateTenant) {
+      return;
+    }
+    try {
+      setError("");
+      setImpersonateBusyId(tenantId);
+      await onImpersonateTenant(tenantId);
+    } catch (err) {
+      setError(err.message || "No se pudo entrar al tenant.");
+    } finally {
+      setImpersonateBusyId("");
+    }
   }
 
   async function loadTenantExtras(tenantId) {
@@ -509,6 +530,9 @@ function SuperAdminView({ route = "/superadmin", onNavigate }) {
                 <button className="sa-btn ghost" type="button" onClick={loadData}>
                   Recargar
                 </button>
+                <button className="sa-btn ghost" type="button" onClick={onLogout}>
+                  Cerrar sesion
+                </button>
                 <button className="sa-btn primary" type="button" onClick={handleNewTenantClick}>
                   Nuevo tenant
                 </button>
@@ -565,12 +589,13 @@ function SuperAdminView({ route = "/superadmin", onNavigate }) {
                   <div>Estado</div>
                   <div>Uso de recursos</div>
                   <div>Tiempo de actividad</div>
-                  <div></div>
+                  <div>Acciones</div>
                 </div>
                 {filteredTenants.length ? (
                   filteredTenants.map((tenant) => {
                     const loadPercent = formatLoadPercent(tenant.id || "tenant");
                     const hasDb = tenant.has_database ? "db" : "no-db";
+                    const canEnter = tenant.has_database;
                     return (
                       <div key={tenant.id} className="sa-table-row">
                         <div className="sa-ref">{tenant.slug?.toUpperCase() || "TENANT"}</div>
@@ -592,13 +617,27 @@ function SuperAdminView({ route = "/superadmin", onNavigate }) {
                         </div>
                         <div className="sa-tenant-meta">{formatDateShort(tenant.created_at)}</div>
                         <div>
-                          <button
-                            className="sa-link"
-                            type="button"
-                            onClick={() => handleManageTenant(tenant)}
-                          >
-                            <ArrowRightIcon className="sa-link-icon" />
-                          </button>
+                          <div className="sa-action-group">
+                            <button
+                              className="sa-action"
+                              type="button"
+                              onClick={() => handleImpersonateTenant(tenant.id)}
+                              disabled={!canEnter || impersonateBusyId === tenant.id}
+                            >
+                              {!canEnter
+                                ? "Sin DB"
+                                : impersonateBusyId === tenant.id
+                                ? "Entrando..."
+                                : "Entrar"}
+                            </button>
+                            <button
+                              className="sa-link"
+                              type="button"
+                              onClick={() => handleManageTenant(tenant)}
+                            >
+                              <ArrowRightIcon className="sa-link-icon" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -621,7 +660,12 @@ function SuperAdminView({ route = "/superadmin", onNavigate }) {
                 Volver al dashboard
               </button>
               <div className="sa-create-title">Registrar nuevo tenant</div>
-              <div className="sa-create-meta">Modo: superadmin</div>
+              <div className="sa-create-actions">
+                <div className="sa-create-meta">Modo: superadmin</div>
+                <button className="sa-btn ghost" type="button" onClick={onLogout}>
+                  Cerrar sesion
+                </button>
+              </div>
             </header>
 
             {error ? <div className="sa-alert">{error}</div> : null}

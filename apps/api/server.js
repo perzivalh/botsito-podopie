@@ -994,6 +994,60 @@ app.post(
   }
 );
 
+app.post(
+  "/api/superadmin/tenants/:id/impersonate",
+  requireAuth,
+  requireSuperAdmin,
+  async (req, res) => {
+    const tenantId = req.params.id;
+    const tenantContext = await resolveTenantContextById(tenantId);
+    if (!tenantContext) {
+      return res.status(403).json({ error: "tenant_not_ready" });
+    }
+    const rawEmail = req.user?.email || "superadmin@perzivalh.local";
+    const email = rawEmail.toLowerCase().trim();
+    let tenantUser = await tenantContext.prisma.user.findUnique({
+      where: { email },
+    });
+    if (!tenantUser) {
+      const password = crypto.randomBytes(24).toString("hex");
+      const passwordHash = await bcrypt.hash(password, 10);
+      tenantUser = await tenantContext.prisma.user.create({
+        data: {
+          name: req.user?.name || "Superadmin",
+          email,
+          password_hash: passwordHash,
+          role: "admin",
+          is_active: true,
+        },
+      });
+    } else if (!tenantUser.is_active) {
+      tenantUser = await tenantContext.prisma.user.update({
+        where: { id: tenantUser.id },
+        data: { is_active: true },
+      });
+    }
+
+    const token = signUser({
+      id: tenantUser.id,
+      email: tenantUser.email,
+      name: tenantUser.name,
+      role: tenantUser.role,
+      tenant_id: tenantId,
+    });
+    return res.json({
+      token,
+      user: {
+        id: tenantUser.id,
+        name: tenantUser.name,
+        email: tenantUser.email,
+        role: tenantUser.role,
+      },
+      tenant_id: tenantId,
+    });
+  }
+);
+
 app.get("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req, res) => {
   const tenantId = req.query.tenant_id;
   const control = getControlClient();

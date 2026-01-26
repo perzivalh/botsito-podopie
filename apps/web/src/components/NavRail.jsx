@@ -11,6 +11,8 @@ function NavRail({
   isProfileOpen,
   onToggleProfile,
   onLogout,
+  onReturnToSuperadmin,
+  showReturnToSuperadmin,
   getInitial,
   SunIcon,
   MoonIcon,
@@ -57,6 +59,8 @@ function NavRail({
         isOpen={isProfileOpen}
         onToggle={onToggleProfile}
         onLogout={onLogout}
+        onReturnToSuperadmin={onReturnToSuperadmin}
+        showReturnToSuperadmin={showReturnToSuperadmin}
         getInitial={getInitial}
       />
     </aside>

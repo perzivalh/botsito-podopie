@@ -1,6 +1,14 @@
 import React from "react";
 
-function ProfileMenu({ user, isOpen, onToggle, onLogout, getInitial }) {
+function ProfileMenu({
+  user,
+  isOpen,
+  onToggle,
+  onLogout,
+  onReturnToSuperadmin,
+  showReturnToSuperadmin,
+  getInitial,
+}) {
   return (
     <div className="rail-profile">
       <button
@@ -17,6 +25,11 @@ function ProfileMenu({ user, isOpen, onToggle, onLogout, getInitial }) {
           <div className="profile-title">{user.name}</div>
           <div className="profile-meta">{user.email || "Sin correo"}</div>
           <div className="profile-role">{user.role}</div>
+          {showReturnToSuperadmin ? (
+            <button className="ghost" type="button" onClick={onReturnToSuperadmin}>
+              Volver a superadmin
+            </button>
+          ) : null}
           <button className="primary" type="button" onClick={onLogout}>
             Salir
           </button>
