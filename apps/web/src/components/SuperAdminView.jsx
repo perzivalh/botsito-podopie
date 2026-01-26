@@ -7,6 +7,7 @@ const EMPTY_PROVISION = {
   plan: "",
   db_url: "",
   phone_number_id: "",
+  line_name: "",
   waba_id: "",
   verify_token: "",
   wa_token: "",
@@ -282,6 +283,7 @@ function SuperAdminView({
       setProvisionForm((prev) => ({
         ...prev,
         phone_number_id: channel.phone_number_id || "",
+        line_name: channel.display_name || "",
         waba_id: channel.waba_id || "",
       }));
     }
@@ -397,6 +399,7 @@ function SuperAdminView({
 
       const channelPayload = {
         phone_number_id: provisionForm.phone_number_id.trim(),
+        display_name: provisionForm.line_name.trim(),
         waba_id: provisionForm.waba_id.trim(),
         verify_token: provisionForm.verify_token.trim(),
         wa_token: provisionForm.wa_token.trim(),
@@ -408,6 +411,7 @@ function SuperAdminView({
         if (existingChannel) {
           await apiPatch(`/api/superadmin/channels/${existingChannel.id}`, {
             phone_number_id: channelPayload.phone_number_id || undefined,
+            display_name: channelPayload.display_name || undefined,
             waba_id: channelPayload.waba_id || undefined,
             verify_token: channelPayload.verify_token || undefined,
             wa_token: channelPayload.wa_token || undefined,
@@ -417,6 +421,7 @@ function SuperAdminView({
           await apiPost("/api/superadmin/channels", {
             tenant_id: tenantId,
             phone_number_id: channelPayload.phone_number_id,
+            display_name: channelPayload.display_name,
             waba_id: channelPayload.waba_id,
             verify_token: channelPayload.verify_token,
             wa_token: channelPayload.wa_token,
@@ -905,6 +910,19 @@ function SuperAdminView({
                   </div>
                   <div className="sa-subsection">
                     <div className="sa-subsection-title">WhatsApp Cloud</div>
+                    <div className="sa-field">
+                      <label>Nombre de linea (opcional)</label>
+                      <input
+                        value={provisionForm.line_name}
+                        onChange={(event) =>
+                          setProvisionForm({
+                            ...provisionForm,
+                            line_name: event.target.value,
+                          })
+                        }
+                        placeholder="Linea principal"
+                      />
+                    </div>
                     <div className="sa-field">
                       <label>Meta Access Token</label>
                       <input

@@ -36,6 +36,7 @@ model Channel {
   tenant_id        String
   provider         String   @default("whatsapp")
   phone_number_id  String   @unique
+  display_name     String?
   waba_id          String?
   verify_token     String
   wa_token_encrypted String

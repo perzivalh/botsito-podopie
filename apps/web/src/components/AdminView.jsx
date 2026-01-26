@@ -66,6 +66,11 @@ function AdminView({
   handleSyncTemplates,
   auditLogs,
   formatDate,
+  tenantChannels,
+  channelForm,
+  setChannelForm,
+  handleChannelSelect,
+  handleChannelSubmit,
   useShellLayout = false,
   pageError,
 }) {
@@ -891,6 +896,55 @@ function AdminView({
                 )}
                 <div className="form-actions">
                   <button className="primary" type="submit">
+                    Guardar
+                  </button>
+                </div>
+              </form>
+            </div>
+            <div className="panel">
+              <div className="panel-title">Lineas de WhatsApp</div>
+              <div className="table">
+                <div className="table-head">
+                  <span>Nombre</span>
+                  <span>Phone ID</span>
+                  <span>Accion</span>
+                </div>
+                {(tenantChannels || []).map((channel) => (
+                  <div className="table-row" key={channel.id}>
+                    <span>{channel.display_name || "Linea sin nombre"}</span>
+                    <span>{channel.phone_number_id}</span>
+                    <button
+                      className="ghost"
+                      onClick={() => handleChannelSelect(channel)}
+                    >
+                      Renombrar
+                    </button>
+                  </div>
+                ))}
+                {!tenantChannels?.length && (
+                  <div className="empty-state">Sin lineas registradas</div>
+                )}
+              </div>
+              <div className="panel-title">
+                {channelForm.id ? "Editar linea" : "Selecciona una linea"}
+              </div>
+              <form className="form-grid" onSubmit={handleChannelSubmit}>
+                <label className="field">
+                  <span>Nombre visible</span>
+                  <input
+                    type="text"
+                    value={channelForm.display_name}
+                    onChange={(event) =>
+                      setChannelForm((prev) => ({
+                        ...prev,
+                        display_name: event.target.value,
+                      }))
+                    }
+                    disabled={!channelForm.id}
+                  />
+                </label>
+                <div className="form-actions">
+                  <button className="primary" type="submit" disabled={!channelForm.id}>
                     Guardar
                   </button>
                 </div>

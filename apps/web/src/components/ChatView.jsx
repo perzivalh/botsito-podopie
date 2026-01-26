@@ -3,6 +3,8 @@ import React from "react";
 function ChatView({
   activeConversation,
   conversations,
+  channels,
+  brandName,
   filters,
   showFilters,
   users,
@@ -49,12 +51,24 @@ function ChatView({
   InfoIcon,
   SendIcon,
 }) {
+  const channelMap = new Map(
+    (channels || []).map((channel) => [
+      channel.phone_number_id,
+      channel.display_name ||
+        (channel.phone_number_id
+          ? `Linea ${String(channel.phone_number_id).slice(-4)}`
+          : ""),
+    ])
+  );
+
   return (
     <section className={`chat-shell ${activeConversation ? "has-active" : ""}`}>
       <aside className="chat-list-panel">
         <div className="chat-list-header">
           <div>
-            <div className="list-title">PODOPIE</div>
+            <div className="list-title">
+              {(brandName || "Perzivalh").toUpperCase()}
+            </div>
             <div className="list-subtitle">Chats</div>
           </div>
           <button className="icon-button add-chat" type="button" title="Nuevo chat">
@@ -147,7 +161,24 @@ function ChatView({
         )}
 
         <div className="list-header">
-          <span>Conversaciones</span>
+          <select
+            className="line-filter"
+            value={filters.phone_number_id}
+            onChange={(event) =>
+              setFilters((prev) => ({
+                ...prev,
+                phone_number_id: event.target.value,
+              }))
+            }
+          >
+            <option value="">Todas las lineas</option>
+            {(channels || []).map((channel) => (
+              <option key={channel.id} value={channel.phone_number_id}>
+                {channel.display_name ||
+                  `Linea ${String(channel.phone_number_id).slice(-4)}`}
+              </option>
+            ))}
+          </select>
           <span>{conversations.length}</span>
         </div>
 
@@ -174,6 +205,10 @@ function ChatView({
                 0
             );
             const topTag = conversation.tags?.[0]?.name || "";
+            const lineLabel = conversation.phone_number_id
+              ? channelMap.get(conversation.phone_number_id) ||
+                `Linea ${String(conversation.phone_number_id).slice(-4)}`
+              : "";
             const statusLabel =
               statusLabels[conversation.status] || conversation.status;
             return (
@@ -204,6 +239,9 @@ function ChatView({
                     <span className={`status-pill ${conversation.status}`}>
                       {statusLabel}
                     </span>
+                    {lineLabel && (
+                      <span className="status-pill line-pill">{lineLabel}</span>
+                    )}
                     {topTag && (
                       <span className="status-pill tag-pill">{topTag}</span>
                     )}

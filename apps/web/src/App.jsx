@@ -425,6 +425,9 @@ function App() {
       : ""
   );
   const [user, setUser] = useState(null);
+  const [branding, setBranding] = useState(null);
+  const [tenantChannels, setTenantChannels] = useState([]);
+  const [channelForm, setChannelForm] = useState({ id: "", display_name: "" });
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [loginError, setLoginError] = useState("");
   const [view, setView] = useState("chats");
@@ -436,7 +439,7 @@ function App() {
   );
   const [showFilters, setShowFilters] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(
-    () => (typeof window !== "undefined" ? window.innerWidth >= 1024 : true)
+    false
   );
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -458,6 +461,7 @@ function App() {
     assigned_user_id: "",
     tag: "",
     search: "",
+    phone_number_id: "",
   });
   const isSuperAdminRoute = pathname.startsWith("/superadmin");
   const [conversations, setConversations] = useState([]);
@@ -536,6 +540,71 @@ function App() {
   });
   const [auditLogs, setAuditLogs] = useState([]);
 
+  function hexToRgb(input) {
+    const hex = String(input || "").replace("#", "").trim();
+    if (hex.length !== 6) {
+      return null;
+    }
+    const num = Number.parseInt(hex, 16);
+    if (Number.isNaN(num)) {
+      return null;
+    }
+    return {
+      r: (num >> 16) & 255,
+      g: (num >> 8) & 255,
+      b: num & 255,
+    };
+  }
+
+  function clamp(value, min = 0, max = 255) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function rgba(color, alpha) {
+    return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+  }
+
+  function darken(color, amount = 0.18) {
+    return {
+      r: clamp(Math.round(color.r * (1 - amount))),
+      g: clamp(Math.round(color.g * (1 - amount))),
+      b: clamp(Math.round(color.b * (1 - amount))),
+    };
+  }
+
+  function applyBrandingToCss(nextBranding) {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const style = document.documentElement.style;
+    if (!nextBranding?.colors) {
+      style.removeProperty("--accent");
+      style.removeProperty("--accent-strong");
+      style.removeProperty("--accent-soft");
+      style.removeProperty("--accent-soft-2");
+      style.removeProperty("--scroll-thumb");
+      style.removeProperty("--scroll-thumb-hover");
+      return;
+    }
+    const primaryHex = nextBranding.colors?.primary || nextBranding.colors?.accent;
+    const accentHex = nextBranding.colors?.accent || primaryHex;
+    const primary = hexToRgb(primaryHex);
+    const accent = hexToRgb(accentHex);
+    if (!primary || !accent) {
+      return;
+    }
+    const accentStrong = darken(accent, 0.22);
+    style.setProperty("--accent", `#${primaryHex.replace("#", "")}`);
+    style.setProperty(
+      "--accent-strong",
+      `#${accentHex.replace("#", "")}`
+    );
+    style.setProperty("--accent-soft", rgba(accent, 0.18));
+    style.setProperty("--accent-soft-2", rgba(accent, 0.12));
+    style.setProperty("--scroll-thumb", rgba(accentStrong, 0.45));
+    style.setProperty("--scroll-thumb-hover", rgba(accentStrong, 0.65));
+  }
+
   const navigateTo = useCallback((nextPath, options = {}) => {
     if (typeof window === "undefined") {
       return;
@@ -595,6 +664,17 @@ function App() {
   }, [activeConversation?.id]);
 
   useEffect(() => {
+    if (view !== "chats") {
+      return;
+    }
+    setHasUnread(false);
+    setIsAtBottom(true);
+    requestAnimationFrame(() => {
+      scrollChatToBottom();
+    });
+  }, [view, activeConversation?.id]);
+
+  useEffect(() => {
     if (!activeConversation) {
       return;
     }
@@ -604,6 +684,13 @@ function App() {
       setHasUnread(true);
     }
   }, [messages, activeConversation?.id, isAtBottom]);
+
+  useEffect(() => {
+    if (view === "chats") {
+      return;
+    }
+    setIsAtBottom(false);
+  }, [view]);
 
   useEffect(() => {
     if (!token) {
@@ -628,6 +715,49 @@ function App() {
       active = false;
     };
   }, [token]);
+
+  useEffect(() => {
+    if (!user || user.role === "superadmin") {
+      setBranding(null);
+      setTenantChannels([]);
+      applyBrandingToCss(null);
+      return;
+    }
+    let active = true;
+    apiGet("/api/branding")
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setBranding(data.branding || null);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setBranding(null);
+      });
+    apiGet("/api/channels")
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setTenantChannels(data.channels || []);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setTenantChannels([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    applyBrandingToCss(branding);
+  }, [branding]);
 
   useEffect(() => {
     if (!user) {
@@ -1275,6 +1405,38 @@ function App() {
     }
   }
 
+  async function loadTenantChannels() {
+    try {
+      const data = await apiGet("/api/channels");
+      setTenantChannels(data.channels || []);
+    } catch (error) {
+      setTenantChannels([]);
+    }
+  }
+
+  function handleChannelSelect(channel) {
+    setChannelForm({
+      id: channel.id,
+      display_name: channel.display_name || "",
+    });
+  }
+
+  async function handleChannelSubmit(event) {
+    event.preventDefault();
+    if (!channelForm.id) {
+      return;
+    }
+    try {
+      await apiPatch(`/api/channels/${channelForm.id}`, {
+        display_name: channelForm.display_name.trim(),
+      });
+      setChannelForm({ id: "", display_name: "" });
+      await loadTenantChannels();
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
   async function handleBranchSubmit(event) {
     event.preventDefault();
     if (!branchForm.code.trim() || !branchForm.name.trim()) {
@@ -1579,6 +1741,8 @@ function App() {
         theme={theme}
         onToggleTheme={toggleTheme}
         user={user}
+        logoUrl={branding?.logo_url || ""}
+        brandName={branding?.brand_name || ""}
         isProfileOpen={isProfileOpen}
         onToggleProfile={() => setIsProfileOpen((prev) => !prev)}
         onLogout={handleLogout}
@@ -1618,6 +1782,11 @@ function App() {
           handleServiceSubmit={handleServiceSubmit}
           handleServiceDisable={handleServiceDisable}
           handleServiceBranchToggle={handleServiceBranchToggle}
+          tenantChannels={tenantChannels}
+          channelForm={channelForm}
+          setChannelForm={setChannelForm}
+          handleChannelSelect={handleChannelSelect}
+          handleChannelSubmit={handleChannelSubmit}
           templates={templates}
           templateForm={templateForm}
           setTemplateForm={setTemplateForm}
@@ -1643,6 +1812,8 @@ function App() {
             <ChatView
               activeConversation={activeConversation}
               conversations={conversations}
+              channels={tenantChannels}
+              brandName={branding?.brand_name || ""}
               filters={filters}
               showFilters={showFilters}
               users={users}

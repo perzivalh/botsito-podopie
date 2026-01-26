@@ -110,6 +110,15 @@
   font-size: 0.85rem;
 }
 
+.line-filter {
+  border: 1px solid var(--border);
+  background: var(--panel-muted);
+  color: var(--ink);
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
 .conversation-list {
   display: flex;
   flex-direction: column;
@@ -255,6 +264,11 @@
   text-transform: none;
 }
 
+.status-pill.line-pill {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
 .status-pill.open {
   background: #dce7ff;
   color: #1e3a8a;
@@ -288,6 +302,11 @@ body[data-theme="dark"] .status-pill.closed {
 body[data-theme="dark"] .status-pill.tag-pill {
   background: rgba(96, 165, 250, 0.18);
   color: #bfdbfe;
+}
+
+body[data-theme="dark"] .status-pill.line-pill {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
 }
 
 .chat-view {

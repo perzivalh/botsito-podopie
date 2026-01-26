@@ -902,6 +902,71 @@ app.get("/api/me", requireAuth, (req, res) => {
   return res.json({ user: req.user });
 });
 
+app.get("/api/branding", requireAuth, async (req, res) => {
+  if (!req.user?.tenant_id) {
+    return res.json({ branding: null });
+  }
+  if (!process.env.CONTROL_DB_URL) {
+    return res.json({ branding: null });
+  }
+  const control = getControlClient();
+  const branding = await control.branding.findUnique({
+    where: { tenant_id: req.user.tenant_id },
+  });
+  return res.json({ branding });
+});
+
+app.get("/api/channels", requireAuth, async (req, res) => {
+  if (!req.user?.tenant_id) {
+    return res.status(403).json({ error: "missing_tenant" });
+  }
+  if (!process.env.CONTROL_DB_URL) {
+    return res.status(500).json({ error: "control_db_missing" });
+  }
+  const control = getControlClient();
+  const channels = await control.channel.findMany({
+    where: { tenant_id: req.user.tenant_id },
+    orderBy: { created_at: "asc" },
+  });
+  return res.json({
+    channels: channels.map((channel) => ({
+      id: channel.id,
+      phone_number_id: channel.phone_number_id,
+      display_name: channel.display_name || null,
+      waba_id: channel.waba_id || null,
+      created_at: channel.created_at,
+    })),
+  });
+});
+
+app.patch("/api/channels/:id", requireAuth, async (req, res) => {
+  if (!req.user?.tenant_id) {
+    return res.status(403).json({ error: "missing_tenant" });
+  }
+  const control = getControlClient();
+  const existing = await control.channel.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!existing || existing.tenant_id !== req.user.tenant_id) {
+    return res.status(404).json({ error: "not_found" });
+  }
+  const displayName = String(req.body?.display_name || "").trim();
+  const channel = await control.channel.update({
+    where: { id: req.params.id },
+    data: { display_name: displayName || null },
+  });
+  clearChannelCache(channel.phone_number_id);
+  return res.json({
+    channel: {
+      id: channel.id,
+      phone_number_id: channel.phone_number_id,
+      display_name: channel.display_name || null,
+      waba_id: channel.waba_id || null,
+      created_at: channel.created_at,
+    },
+  });
+});
+
 app.get("/api/superadmin/tenants", requireAuth, requireSuperAdmin, async (req, res) => {
   const control = getControlClient();
   const tenants = await control.tenant.findMany({
@@ -1061,6 +1126,7 @@ app.get("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req, 
       tenant_id: channel.tenant_id,
       provider: channel.provider,
       phone_number_id: channel.phone_number_id,
+      display_name: channel.display_name || null,
       waba_id: channel.waba_id || null,
       created_at: channel.created_at,
     })),
@@ -1070,6 +1136,7 @@ app.get("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req, 
 app.post("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req, res) => {
   const tenantId = req.body?.tenant_id;
   const phoneNumberId = (req.body?.phone_number_id || "").trim();
+  const displayName = (req.body?.display_name || "").trim();
   const wabaId = (req.body?.waba_id || "").trim();
   const verifyToken = (req.body?.verify_token || "").trim();
   const waToken = (req.body?.wa_token || "").trim();
@@ -1083,6 +1150,7 @@ app.post("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req,
       tenant_id: tenantId,
       provider: "whatsapp",
       phone_number_id: phoneNumberId,
+      display_name: displayName || null,
       waba_id: wabaId || null,
       verify_token: verifyToken,
       wa_token_encrypted: encryptString(waToken),
@@ -1096,6 +1164,7 @@ app.post("/api/superadmin/channels", requireAuth, requireSuperAdmin, async (req,
       tenant_id: channel.tenant_id,
       provider: channel.provider,
       phone_number_id: channel.phone_number_id,
+      display_name: channel.display_name || null,
       waba_id: channel.waba_id || null,
       created_at: channel.created_at,
     },
@@ -1110,6 +1179,10 @@ app.patch(
     const updates = {};
     if (req.body?.phone_number_id) {
       updates.phone_number_id = String(req.body.phone_number_id).trim();
+    }
+    if (req.body?.display_name !== undefined) {
+      const raw = String(req.body.display_name || "").trim();
+      updates.display_name = raw || null;
     }
     if (req.body?.verify_token) {
       updates.verify_token = String(req.body.verify_token).trim();
@@ -1143,6 +1216,7 @@ app.patch(
         tenant_id: channel.tenant_id,
         provider: channel.provider,
         phone_number_id: channel.phone_number_id,
+        display_name: channel.display_name || null,
         waba_id: channel.waba_id || null,
         created_at: channel.created_at,
       },
@@ -1516,6 +1590,9 @@ function buildConversationFilter(filter) {
         },
       },
     };
+  }
+  if (filter.phone_number_id) {
+    where.phone_number_id = filter.phone_number_id;
   }
   if (filter.verified_only) {
     where.verified_at = { not: null };

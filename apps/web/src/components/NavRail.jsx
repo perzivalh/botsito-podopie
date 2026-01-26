@@ -8,6 +8,8 @@ function NavRail({
   theme,
   onToggleTheme,
   user,
+  logoUrl,
+  brandName,
   isProfileOpen,
   onToggleProfile,
   onLogout,
@@ -17,10 +19,15 @@ function NavRail({
   SunIcon,
   MoonIcon,
 }) {
+  const brandInitial = (brandName || "P").trim().charAt(0) || "P";
   return (
     <aside className="nav-rail">
       <button className="rail-logo" type="button" title="Perzivalh">
-        <span className="logo-mark">P</span>
+        {logoUrl ? (
+          <img src={logoUrl} alt={brandName || "Logo"} />
+        ) : (
+          <span className="logo-mark">{brandInitial}</span>
+        )}
       </button>
       <nav className="rail-nav">
         {navItems.map((item) => {

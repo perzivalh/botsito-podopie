@@ -23,6 +23,13 @@
   box-shadow: 0 10px 20px var(--shadow);
 }
 
+.rail-logo img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
 .logo-mark {
   font-weight: 700;
   font-family: "Space Grotesk", sans-serif;
