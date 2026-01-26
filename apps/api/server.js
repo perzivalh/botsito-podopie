@@ -1455,12 +1455,23 @@ app.post("/api/conversations/:id/messages", requireAuth, async (req, res) => {
     return res.json({ message: result.message });
   }
 
-  if (!conversation.phone_number_id) {
-    return res.status(400).json({ error: "missing_phone_number_id" });
+  const tenantContext = getTenantContext();
+  let phoneNumberId = conversation.phone_number_id;
+  if (!phoneNumberId) {
+    phoneNumberId =
+      (req.body?.phone_number_id || "").trim() ||
+      tenantContext.channel?.phone_number_id ||
+      "";
+    if (!phoneNumberId) {
+      return res.status(400).json({ error: "missing_phone_number_id" });
+    }
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { phone_number_id: phoneNumberId },
+    });
   }
-  const channelConfig = await resolveChannelByPhoneNumberId(
-    conversation.phone_number_id
-  );
+
+  const channelConfig = await resolveChannelByPhoneNumberId(phoneNumberId);
   const tenantId = getTenantContext().tenantId;
   if (!channelConfig || channelConfig.tenantId !== tenantId) {
     return res.status(400).json({ error: "missing_channel" });
