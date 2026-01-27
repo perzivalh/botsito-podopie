@@ -120,11 +120,14 @@
 }
 
 .sa-main {
-  padding: 1.6rem 2rem 2rem;
+  padding: 1.6rem 2rem 6rem;
+  /* Extra padding at bottom for scroll */
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1.6rem;
+  height: 100%;
+  /* Ensure it fills the grid cell */
 }
 
 .sa-topbar {

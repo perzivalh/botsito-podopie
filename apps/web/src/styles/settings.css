@@ -864,10 +864,10 @@
 
 .bot-flow-desc {
   font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--muted);
   margin-top: 0.5rem;
   padding-top: 0.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border);
 }
 
 /* Toggle Switch */
@@ -1059,7 +1059,7 @@
 
 .bot-metric-progress {
   height: 6px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--border);
   border-radius: 999px;
   margin-top: 0.5rem;
   overflow: hidden;
@@ -1067,7 +1067,7 @@
 
 .bot-metric-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+  background: var(--accent);
   border-radius: 999px;
 }
 
@@ -1075,7 +1075,7 @@
 .bot-global-settings {
   margin-top: 1.5rem;
   padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--border);
 }
 
 .bot-settings-controls {
