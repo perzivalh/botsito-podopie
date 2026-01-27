@@ -5,6 +5,7 @@ function ChatView({
   conversations,
   channels,
   brandName,
+  lastReadMap,
   filters,
   showFilters,
   users,
@@ -60,6 +61,24 @@ function ChatView({
           : ""),
     ])
   );
+
+  function getPreview(conversation) {
+    if (!conversation) {
+      return "Sin mensajes";
+    }
+    const preview =
+      conversation.last_message_preview ||
+      conversation.last_message_text ||
+      conversation.last_message ||
+      "";
+    if (preview) {
+      return preview;
+    }
+    if (conversation.last_message_type) {
+      return `[${conversation.last_message_type}]`;
+    }
+    return "Sin mensajes";
+  }
 
   return (
     <section className={`chat-shell ${activeConversation ? "has-active" : ""}`}>
@@ -194,10 +213,7 @@ function ChatView({
               conversation.wa_id ||
               "Sin nombre";
             const preview =
-              conversation.last_message_preview ||
-              conversation.last_message_text ||
-              conversation.last_message ||
-              "Sin mensajes";
+              getPreview(conversation);
             const unreadCount = Number(
               conversation.unread_count ||
                 conversation.unread_messages ||
@@ -209,8 +225,13 @@ function ChatView({
               ? channelMap.get(conversation.phone_number_id) ||
                 `Linea ${String(conversation.phone_number_id).slice(-4)}`
               : "";
-            const statusLabel =
-              statusLabels[conversation.status] || conversation.status;
+            const lastReadAt = lastReadMap?.[conversation.id] || null;
+            const lastMessageAt = conversation.last_message_at;
+            const isUnread =
+              lastMessageAt &&
+              (!lastReadAt ||
+                new Date(lastMessageAt).getTime() > new Date(lastReadAt).getTime()) &&
+              conversation.last_message_direction !== "out";
             return (
               <button
                 key={conversation.id}
@@ -234,11 +255,10 @@ function ChatView({
                       )}
                     </div>
                   </div>
-                  <div className="conversation-preview">{preview}</div>
+                  <div className={`conversation-preview ${isUnread ? "unread" : ""}`}>
+                    {preview}
+                  </div>
                   <div className="conversation-meta">
-                    <span className={`status-pill ${conversation.status}`}>
-                      {statusLabel}
-                    </span>
                     {lineLabel && (
                       <span className="status-pill line-pill">{lineLabel}</span>
                     )}

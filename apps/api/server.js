@@ -1430,8 +1430,41 @@ app.get("/api/conversations", requireAuth, async (req, res) => {
     take: limit,
   });
 
+  const ids = conversations.map((entry) => entry.id);
+  let lastMessages = [];
+  if (ids.length) {
+    lastMessages = await prisma.message.findMany({
+      where: { conversation_id: { in: ids } },
+      select: {
+        conversation_id: true,
+        text: true,
+        type: true,
+        direction: true,
+        created_at: true,
+      },
+      orderBy: { created_at: "desc" },
+      distinct: ["conversation_id"],
+    });
+  }
+  const lastMessageMap = new Map(
+    lastMessages.map((message) => [message.conversation_id, message])
+  );
+
   return res.json({
-    conversations: conversations.map((entry) => formatConversation(entry)),
+    conversations: conversations.map((entry) => {
+      const formatted = formatConversation(entry);
+      const lastMessage = lastMessageMap.get(entry.id);
+      if (!lastMessage) {
+        return formatted;
+      }
+      return {
+        ...formatted,
+        last_message_text: lastMessage.text,
+        last_message_type: lastMessage.type,
+        last_message_direction: lastMessage.direction,
+        last_message_at: lastMessage.created_at || formatted.last_message_at,
+      };
+    }),
   });
 });
 

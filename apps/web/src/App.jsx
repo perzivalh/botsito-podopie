@@ -428,6 +428,16 @@ function App() {
   const [branding, setBranding] = useState(null);
   const [tenantChannels, setTenantChannels] = useState([]);
   const [channelForm, setChannelForm] = useState({ id: "", display_name: "" });
+  const [lastReadMap, setLastReadMap] = useState(() => {
+    if (typeof window === "undefined") {
+      return {};
+    }
+    try {
+      return JSON.parse(localStorage.getItem("last_read_map") || "{}");
+    } catch (error) {
+      return {};
+    }
+  });
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [loginError, setLoginError] = useState("");
   const [view, setView] = useState("chats");
@@ -661,6 +671,9 @@ function App() {
     requestAnimationFrame(() => {
       scrollChatToBottom();
     });
+    if (activeConversation) {
+      markConversationRead(activeConversation);
+    }
   }, [activeConversation?.id]);
 
   useEffect(() => {
@@ -880,7 +893,7 @@ function App() {
     socket.on("conversation:update", ({ conversation }) => {
       setConversations((prev) => {
         const next = prev.map((item) =>
-          item.id === conversation.id ? conversation : item
+          item.id === conversation.id ? { ...item, ...conversation } : item
         );
         if (!next.find((item) => item.id === conversation.id)) {
           next.push(conversation);
@@ -888,26 +901,34 @@ function App() {
         return sortConversations(next);
       });
       setActiveConversation((prev) =>
-        prev?.id === conversation.id ? conversation : prev
+        prev?.id === conversation.id ? { ...prev, ...conversation } : prev
       );
     });
     socket.on("message:new", ({ conversation, message }) => {
+      const enrichedConversation = {
+        ...conversation,
+        last_message_text: message?.text || null,
+        last_message_type: message?.type || null,
+        last_message_direction: message?.direction || null,
+        last_message_at: message?.created_at || conversation.last_message_at,
+      };
       setConversations((prev) => {
         const next = prev.map((item) =>
-          item.id === conversation.id ? conversation : item
+          item.id === conversation.id ? { ...item, ...enrichedConversation } : item
         );
         if (!next.find((item) => item.id === conversation.id)) {
-          next.push(conversation);
+          next.push(enrichedConversation);
         }
         return sortConversations(next);
       });
       setActiveConversation((prev) =>
-        prev?.id === conversation.id ? conversation : prev
+        prev?.id === conversation.id ? { ...prev, ...enrichedConversation } : prev
       );
       setMessages((prev) => {
         if (!activeConversation || activeConversation.id !== conversation.id) {
           return prev;
         }
+        markConversationRead(enrichedConversation);
         return [...prev, message];
       });
     });
@@ -1027,6 +1048,7 @@ function App() {
       const data = await apiGet(`/api/conversations/${conversationId}`);
       setActiveConversation(data.conversation);
       setMessages(data.messages || []);
+      markConversationRead(data.conversation);
     } catch (error) {
       setPageError(normalizeError(error));
     } finally {
@@ -1130,6 +1152,20 @@ function App() {
     el.scrollTop = el.scrollHeight;
     setIsAtBottom(true);
     setHasUnread(false);
+  }
+
+  function markConversationRead(conversation) {
+    if (!conversation?.id || !conversation?.last_message_at) {
+      return;
+    }
+    setLastReadMap((prev) => {
+      const next = {
+        ...prev,
+        [conversation.id]: conversation.last_message_at,
+      };
+      localStorage.setItem("last_read_map", JSON.stringify(next));
+      return next;
+    });
   }
 
   function handleChatScroll() {
@@ -1818,6 +1854,7 @@ function App() {
               conversations={conversations}
               channels={tenantChannels}
               brandName={branding?.brand_name || ""}
+              lastReadMap={lastReadMap}
               filters={filters}
               showFilters={showFilters}
               users={users}
