@@ -1,27 +1,33 @@
 /**
  * BotSection - Gestión de Bots para el Tenant
- * Muestra los bots asignados por el SuperAdmin con opción de activar/desactivar
+ * Versión simplificada y conectada a métricas reales
  */
 import React, { useEffect, useState } from "react";
 import { apiGet, apiPatch } from "../../api";
 
-function BotSection({ settings, setSettings, handleSaveSettings }) {
+function BotSection() {
     const [bots, setBots] = useState([]);
+    const [metrics, setMetrics] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
     useEffect(() => {
-        loadBots();
+        loadData();
     }, []);
 
-    async function loadBots() {
+    async function loadData() {
         setLoading(true);
         try {
-            const response = await apiGet("/api/admin/bots");
-            setBots(response.bots || []);
+            const [botsRes, metricsRes] = await Promise.all([
+                apiGet("/api/admin/bots"),
+                apiGet("/api/admin/bots/metrics")
+            ]);
+            setBots(botsRes.bots || []);
+            setMetrics(metricsRes.metrics);
             setError("");
         } catch (err) {
-            setError(err.message || "Error al cargar bots");
+            console.error(err);
+            setError(err.message || "Error al cargar datos");
         } finally {
             setLoading(false);
         }
@@ -38,9 +44,6 @@ function BotSection({ settings, setSettings, handleSaveSettings }) {
         }
     }
 
-    const activeBots = bots.filter((b) => b.is_active).length;
-    const globalActive = activeBots > 0 && settings?.bot_enabled;
-
     const formatLastActivity = (date) => {
         if (!date) return "Sin actividad reciente";
         const d = new Date(date);
@@ -53,6 +56,11 @@ function BotSection({ settings, setSettings, handleSaveSettings }) {
         if (diffHours < 24) return `Última actividad: hace ${diffHours}h`;
         return `Última actividad: ${d.toLocaleDateString()}`;
     };
+
+    // Calcular estado global para el header
+    const activeBotsCount = bots.filter(b => b.is_active).length;
+    const globalStatus = activeBotsCount > 0 ? "ACTIVO" : "INACTIVO";
+    const globalClass = activeBotsCount > 0 ? "active" : "inactive";
 
     return (
         <div className="bot-section">
@@ -69,9 +77,9 @@ function BotSection({ settings, setSettings, handleSaveSettings }) {
                 </div>
                 <div className="bot-section-global-toggle">
                     <span className="bot-toggle-label">ESTADO DEL BOT:</span>
-                    <div className={`bot-toggle-pill ${globalActive ? "active" : "inactive"}`}>
+                    <div className={`bot-toggle-pill ${globalClass}`}>
                         <span className="bot-toggle-dot" />
-                        <span>{globalActive ? "ACTIVO" : "INACTIVO"}</span>
+                        <span>{globalStatus}</span>
                     </div>
                 </div>
             </div>
@@ -90,7 +98,7 @@ function BotSection({ settings, setSettings, handleSaveSettings }) {
                     ) : bots.length === 0 ? (
                         <div className="bot-empty">
                             <p>No hay bots asignados a tu cuenta.</p>
-                            <p className="bot-empty-hint">Contacta al administrador para habilitar bots.</p>
+                            <p className="bot-empty-hint">Contacta con soporte si necesitas activar un bot.</p>
                         </div>
                     ) : (
                         <div className="bot-flows-list">
@@ -137,84 +145,51 @@ function BotSection({ settings, setSettings, handleSaveSettings }) {
                         {/* Interacciones */}
                         <div className="bot-metric-card">
                             <div className="bot-metric-icon">📊</div>
-                            <div className="bot-metric-badge positive">+12% vs ayer</div>
+                            <div className={`bot-metric-badge ${metrics?.interactions?.change >= 0 ? "positive" : "neutral"}`}>
+                                {metrics?.interactions?.change > 0 ? "+" : ""}{metrics?.interactions?.change}% {metrics?.interactions?.label}
+                            </div>
                             <div className="bot-metric-label">INTERACCIONES</div>
-                            <div className="bot-metric-value">--</div>
+                            <div className="bot-metric-value">{metrics ? metrics.interactions.value : "--"}</div>
                             <div className="bot-metric-sub">Total de sesiones iniciadas hoy</div>
                         </div>
 
                         {/* Resolución Final */}
                         <div className="bot-metric-card">
                             <div className="bot-metric-icon">✓</div>
-                            <div className="bot-metric-badge neutral">Objetivo: 85%</div>
+                            <div className="bot-metric-badge neutral">Objetivo: {metrics?.resolution?.target}%</div>
                             <div className="bot-metric-label">RESOLUCIÓN FINAL</div>
-                            <div className="bot-metric-value">--%</div>
+                            <div className="bot-metric-value">{metrics ? metrics.resolution.value : "--"}%</div>
                             <div className="bot-metric-progress">
-                                <div className="bot-metric-progress-fill" style={{ width: "0%" }} />
+                                <div
+                                    className="bot-metric-progress-fill"
+                                    style={{ width: `${metrics ? metrics.resolution.value : 0}%` }}
+                                />
                             </div>
                         </div>
 
                         {/* Vida del Proceso */}
                         <div className="bot-metric-card">
                             <div className="bot-metric-icon">⏱</div>
-                            <div className="bot-metric-badge sla">● SLA Normal</div>
+                            <div className="bot-metric-badge sla">● {metrics?.uptime?.status}</div>
                             <div className="bot-metric-label">VIDA DEL PROCESO</div>
-                            <div className="bot-metric-value">--</div>
-                            <div className="bot-metric-sub">UPTIME: --%</div>
+                            <div className="bot-metric-value">{metrics ? metrics.uptime.value : "--"}</div>
+                            <div className="bot-metric-sub">UPTIME SISTEMA</div>
                         </div>
 
                         {/* Errores */}
                         <div className="bot-metric-card">
-                            <div className="bot-metric-icon error">⚠</div>
-                            <div className="bot-metric-badge stable">Estable</div>
+                            <div className={`bot-metric-icon ${metrics?.errors?.value > 0 ? "error" : ""}`}>⚠</div>
+                            <div className={`bot-metric-badge ${metrics?.errors?.value === 0 ? "stable" : "neutral"}`}>
+                                {metrics?.errors?.status}
+                            </div>
                             <div className="bot-metric-label">ERRORES</div>
-                            <div className="bot-metric-value">--</div>
-                            <div className="bot-metric-sub error-sub">CRÍTICOS: 0</div>
+                            <div className="bot-metric-value">{metrics ? metrics.errors.value : "--"}</div>
+                            <div className={`bot-metric-sub ${metrics?.errors?.critical > 0 ? "error-sub" : ""}`}>
+                                CRÍTICOS: {metrics ? metrics.errors.critical : 0}
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-
-            {/* Settings originales (bot_enabled, auto_reply_enabled) */}
-            <div className="bot-global-settings">
-                <div className="bot-panel-header">
-                    <span className="bot-panel-title">CONFIGURACIÓN GLOBAL</span>
-                </div>
-                {settings ? (
-                    <div className="bot-settings-controls">
-                        <label className="toggle">
-                            <input
-                                type="checkbox"
-                                checked={settings.bot_enabled}
-                                onChange={(event) =>
-                                    setSettings((prev) => ({
-                                        ...prev,
-                                        bot_enabled: event.target.checked,
-                                    }))
-                                }
-                            />
-                            Bot habilitado
-                        </label>
-                        <label className="toggle">
-                            <input
-                                type="checkbox"
-                                checked={settings.auto_reply_enabled}
-                                onChange={(event) =>
-                                    setSettings((prev) => ({
-                                        ...prev,
-                                        auto_reply_enabled: event.target.checked,
-                                    }))
-                                }
-                            />
-                            Auto respuesta habilitada
-                        </label>
-                        <button className="primary" onClick={handleSaveSettings}>
-                            Guardar configuración
-                        </button>
-                    </div>
-                ) : (
-                    <div className="bot-loading">Cargando settings...</div>
-                )}
             </div>
         </div>
     );

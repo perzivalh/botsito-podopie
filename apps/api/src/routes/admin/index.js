@@ -751,6 +751,7 @@ router.get("/audit", requireAuth, requireRole("admin"), async (req, res) => {
 // ==========================================
 
 const { getTenantBots, updateTenantBotStatus } = require("../../services/tenantBots");
+const { getBotMetrics } = require("../../services/botMetrics");
 
 // GET /api/admin/bots
 // Returns bots assigned to this tenant by SuperAdmin
@@ -792,6 +793,30 @@ router.patch("/bots/:id", requireAuth, requireRole("admin"), async (req, res) =>
     } catch (error) {
         logger.error("bots.toggle_failed", { message: error.message });
         return res.status(500).json({ error: "update_failed" });
+    }
+});
+
+// GET /api/admin/bots/metrics
+// Returns performance metrics for the tenant's bots
+router.get("/bots/metrics", requireAuth, requireRole("admin"), async (req, res) => {
+    const tenantId = req.user.tenant_id;
+    if (!tenantId) {
+        return res.status(400).json({ error: "tenant_not_found" });
+    }
+    try {
+        const metrics = await getBotMetrics(tenantId);
+        return res.json({ metrics });
+    } catch (error) {
+        logger.error("bots.metrics_failed", { message: error.message });
+        // Return zeros on error to avoid breaking UI
+        return res.json({
+            metrics: {
+                interactions: { value: 0, change: 0, label: "nodata" },
+                resolution: { value: 0, target: 85 },
+                uptime: { value: "-", status: "Unknown" },
+                errors: { value: 0, critical: 0, status: "Unknown" }
+            }
+        });
     }
 });
 

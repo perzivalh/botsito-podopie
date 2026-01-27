@@ -25,63 +25,82 @@ function BotSection({
     }
 
     return (
-        <div className="sa-card">
-            <div className="sa-card-header">
-                <h3>Asignación de Bots</h3>
-                <p>Selecciona qué flujos estarán disponibles para este cliente.</p>
+        <div className="sa-bot-card">
+            <div className="sa-bot-header">
+                <div className="sa-bot-icon-large">
+                    🤖
+                </div>
+                <div className="sa-bot-title-group">
+                    <h3>Asignación de Bots</h3>
+                    <p>Selecciona qué flujos estarán disponibles para este cliente. Los flujos asignados aparecerán inmediatamente en el panel del usuario.</p>
+                </div>
             </div>
 
-            <div className="sa-bot-assign-list">
-                {loading ? (
-                    <div className="sa-loading">Cargando asignaciones...</div>
-                ) : tenantBots.length === 0 ? (
-                    <div className="sa-empty-state">Este cliente no tiene bots asignados.</div>
-                ) : (
-                    <div className="sa-assigned-bots">
-                        {tenantBots.map((bot) => (
-                            <div key={bot.id} className="sa-assigned-item">
-                                <div className="sa-bot-info">
-                                    <span className="sa-bot-icon">{bot.flow_icon || "🤖"}</span>
-                                    <div className="sa-bot-details">
-                                        <span className="sa-bot-name">{bot.flow_name || bot.flow_id}</span>
-                                        <span className="sa-bot-desc">{bot.flow_description}</span>
-                                    </div>
-                                </div>
-                                <button
-                                    type="button"
-                                    className="sa-btn-icon danger"
-                                    title="Quitar bot del cliente"
-                                    onClick={() => onRemoveBot(bot.id)}
-                                >
-                                    ✕
-                                </button>
+            {loading ? (
+                <div className="sa-loading" style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+                    Cargando asignaciones...
+                </div>
+            ) : tenantBots.length === 0 ? (
+                <div className="sa-empty-placeholder">
+                    <div className="sa-empty-icon">📂</div>
+                    <div>Este cliente no tiene bots asignados actualmente.</div>
+                </div>
+            ) : (
+                <div className="sa-bot-grid">
+                    {tenantBots.map((bot) => (
+                        <div key={bot.id} className="sa-assigned-bot">
+                            <div className="sa-bot-item-icon">
+                                {bot.flow_icon || "⚡"}
                             </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            <div className="sa-bot-add-area">
-                <select
-                    className="sa-input"
-                    value={selectedFlow}
-                    onChange={(e) => setSelectedFlow(e.target.value)}
-                    disabled={unusedFlows.length === 0}
-                >
-                    <option value="">-- Seleccionar bot para asignar --</option>
-                    {unusedFlows.map((flow) => (
-                        <option key={flow.id} value={flow.id}>
-                            {flow.icon} {flow.name}
-                        </option>
+                            <div className="sa-bot-item-info">
+                                <span className="sa-bot-item-name">
+                                    {bot.flow_name || bot.flow_id}
+                                </span>
+                                <span className="sa-bot-item-desc">
+                                    {bot.flow_description || "Sin descripción"}
+                                </span>
+                            </div>
+                            <button
+                                type="button"
+                                className="sa-btn-remove"
+                                title="Quitar bot del cliente"
+                                onClick={() => onRemoveBot(bot.id)}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                            </button>
+                        </div>
                     ))}
-                </select>
+                </div>
+            )}
+
+            <div className="sa-bot-controls">
+                <div className="sa-select-container">
+                    <select
+                        className="sa-select-styled"
+                        value={selectedFlow}
+                        onChange={(e) => setSelectedFlow(e.target.value)}
+                        disabled={unusedFlows.length === 0}
+                    >
+                        <option value="">
+                            {unusedFlows.length === 0
+                                ? "-- No hay más bots disponibles --"
+                                : "-- Seleccionar bot para asignar --"}
+                        </option>
+                        {unusedFlows.map((flow) => (
+                            <option key={flow.id} value={flow.id}>
+                                {flow.name}
+                            </option>
+                        ))}
+                    </select>
+                </div>
                 <button
                     type="button"
-                    className="sa-btn primary small"
+                    className="sa-btn-assign"
                     onClick={handleAdd}
                     disabled={!selectedFlow}
                 >
-                    Asignar
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+                    Asignar Bot
                 </button>
             </div>
         </div>
