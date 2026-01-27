@@ -76,6 +76,14 @@
   border: 1px solid var(--border);
   background: var(--panel-muted);
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.settings-icon-svg {
+  width: 12px;
+  height: 12px;
 }
 
 .settings-item.active {
@@ -87,6 +95,7 @@
 .settings-item.active .settings-icon {
   border-color: var(--accent);
   background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .settings-item:disabled {
@@ -397,10 +406,113 @@
   color: var(--muted);
 }
 
+.users-actions-menu {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.users-menu {
+  position: absolute;
+  right: 0;
+  top: 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.4rem;
+  display: grid;
+  gap: 0.3rem;
+  box-shadow: 0 12px 24px var(--shadow);
+  z-index: 20;
+}
+
+.users-menu button {
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+}
+
+.users-menu button:hover {
+  background: var(--accent-soft-2);
+  color: var(--accent);
+}
+
 .users-form {
   border-top: 1px solid var(--border);
   padding-top: 1rem;
   margin-top: 0.6rem;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 18, 0.35);
+  backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  z-index: 999;
+}
+
+.modal-card {
+  width: min(560px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 1.6rem;
+  box-shadow: 0 22px 50px var(--shadow);
+}
+
+.modal-card.modal-lg {
+  width: min(900px, 94vw);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.modal-title {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.modal-close {
+  border: none;
+  background: var(--panel-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.modal-text {
+  color: var(--muted);
+}
+
+.roles-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.role-block {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0.8rem 1rem;
+  background: var(--panel-muted);
+}
+
+.role-block-title {
+  font-weight: 600;
+  margin-bottom: 0.6rem;
 }
 
 .roles-grid {

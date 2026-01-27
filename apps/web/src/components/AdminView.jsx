@@ -1,5 +1,72 @@
 import React, { useMemo, useState } from "react";
 
+function SlidersIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <line x1="4" y1="6" x2="20" y2="6" strokeWidth="2" />
+      <circle cx="9" cy="6" r="2" strokeWidth="2" />
+      <line x1="4" y1="12" x2="20" y2="12" strokeWidth="2" />
+      <circle cx="15" cy="12" r="2" strokeWidth="2" />
+      <line x1="4" y1="18" x2="20" y2="18" strokeWidth="2" />
+      <circle cx="11" cy="18" r="2" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function UsersIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <circle cx="9" cy="8" r="3" strokeWidth="2" />
+      <path d="M4 20c0-3 2.7-5.5 6-5.5s6 2.5 6 5.5" strokeWidth="2" />
+      <circle cx="17" cy="9" r="2" strokeWidth="2" />
+      <path d="M14 20c0-1.8 1.4-3.4 3.2-4" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function BotIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <rect x="5" y="7" width="14" height="10" rx="2" strokeWidth="2" />
+      <circle cx="9" cy="12" r="1" strokeWidth="2" />
+      <circle cx="15" cy="12" r="1" strokeWidth="2" />
+      <line x1="12" y1="4" x2="12" y2="7" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function TemplateIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <rect x="6" y="4" width="12" height="16" rx="2" strokeWidth="2" />
+      <line x1="9" y1="9" x2="15" y2="9" strokeWidth="2" />
+      <line x1="9" y1="13" x2="15" y2="13" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function AuditIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <rect x="6" y="5" width="12" height="15" rx="2" strokeWidth="2" />
+      <path d="M9 5h6" strokeWidth="2" />
+      <path d="M9 10h6" strokeWidth="2" />
+      <path d="M9 14h6" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function PuzzleIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path
+        d="M8 4h4a2 2 0 1 1 0 4h-1v2h2a2 2 0 1 1 0 4h-2v2H8a2 2 0 1 1-4 0V8a2 2 0 1 1 4 0z"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
 const ROLE_LABELS = {
   admin: { title: "Administrador", subtitle: "Acceso total", tone: "alert" },
   recepcion: { title: "Operador", subtitle: "Atencion al cliente", tone: "info" },
@@ -66,33 +133,43 @@ function AdminView({
   handleSyncTemplates,
   auditLogs,
   formatDate,
+  planName,
   tenantChannels,
   channelForm,
   setChannelForm,
   handleChannelSelect,
   handleChannelSubmit,
+  handleUserDelete,
+  defaultRolePermissions,
+  handleRoleDelete,
   useShellLayout = false,
   pageError,
 }) {
   const [userSearch, setUserSearch] = useState("");
   const [showUserForm, setShowUserForm] = useState(false);
+  const [activeUserMenu, setActiveUserMenu] = useState("");
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [roleModalOpen, setRoleModalOpen] = useState(false);
+  const [roleModalMode, setRoleModalMode] = useState("create");
+  const [roleFormRole, setRoleFormRole] = useState("recepcion");
+  const [roleDraft, setRoleDraft] = useState({ modules: {}, settings: {} });
 
   const roleAccess = rolePermissions?.[currentRole];
   const settingsMenu = [
     {
       title: "Principal",
       items: [
-        { id: "general", label: "General" },
-        { id: "users", label: "Gestion de Usuarios" },
-        { id: "bot", label: "Configuracion de Bot" },
+        { id: "general", label: "General", icon: SlidersIcon },
+        { id: "users", label: "Gestion de Usuarios", icon: UsersIcon },
+        { id: "bot", label: "Configuracion de Bot", icon: BotIcon },
       ],
     },
     {
       title: "Canales e Integraciones",
       items: [
-        { id: "templates", label: "Plantillas de Meta" },
-        { id: "audit", label: "Registros / Auditoria" },
-        { id: "odoo", label: "Integracion Odoo" },
+        { id: "templates", label: "Plantillas de Meta", icon: TemplateIcon },
+        { id: "audit", label: "Registros / Auditoria", icon: AuditIcon },
+        { id: "odoo", label: "Integracion Odoo", icon: PuzzleIcon },
       ],
     },
   ];
@@ -118,6 +195,60 @@ function AdminView({
       return;
     }
     setSettingsSection(section);
+  }
+
+  function normalizePermissions(roleKey) {
+    const base =
+      rolePermissions?.[roleKey] ||
+      defaultRolePermissions?.[roleKey] || { modules: {}, settings: {} };
+    return {
+      modules: { ...(base.modules || {}) },
+      settings: { ...(base.settings || {}) },
+    };
+  }
+
+  function handleOpenRoleModal(roleKey, mode = "edit") {
+    setRoleModalMode(mode);
+    setRoleFormRole(roleKey);
+    setRoleDraft(normalizePermissions(roleKey));
+    setRoleModalOpen(true);
+  }
+
+  function handleRoleDraftToggle(group, key, action) {
+    setRoleDraft((prev) => {
+      const next = { ...prev };
+      const groupEntry = { ...(next[group] || {}) };
+      const current = { ...(groupEntry[key] || {}) };
+      const nextValue = !current[action];
+      current[action] = nextValue;
+      if (action === "write" && nextValue) {
+        current.read = true;
+      }
+      if (action === "read" && !nextValue) {
+        current.write = false;
+      }
+      groupEntry[key] = current;
+      next[group] = groupEntry;
+      return next;
+    });
+  }
+
+  function handleSaveRoleDraft() {
+    if (!roleFormRole) {
+      return;
+    }
+    setRolePermissions((prev) => ({
+      ...prev,
+      [roleFormRole]: roleDraft,
+    }));
+    setRoleModalOpen(false);
+  }
+
+  function handleDeleteRoleDraft() {
+    if (roleFormRole && handleRoleDelete) {
+      handleRoleDelete(roleFormRole);
+    }
+    setRoleModalOpen(false);
   }
 
   function handlePermissionToggle(role, group, key, action) {
@@ -196,6 +327,7 @@ function AdminView({
             <div className="settings-group-list">
               {group.items.map((item) => {
                 const disabled = !hasSettingsAccess(item.id);
+                const Icon = item.icon;
                 return (
                   <button
                     key={item.id}
@@ -206,7 +338,9 @@ function AdminView({
                     onClick={() => handleSectionClick(item.id)}
                     disabled={disabled}
                   >
-                    <span className="settings-icon" aria-hidden="true" />
+                    <span className="settings-icon" aria-hidden="true">
+                      <Icon className="settings-icon-svg" />
+                    </span>
                     {item.label}
                   </button>
                 );
@@ -216,7 +350,9 @@ function AdminView({
         ))}
         <div className="settings-plan">
           <div className="settings-plan-label">Plan actual</div>
-          <div className="settings-plan-name">Enterprise CRM</div>
+          <div className="settings-plan-name">
+            {planName ? planName : "Sin plan"}
+          </div>
         </div>
       </aside>
       <div className="settings-content">
@@ -254,7 +390,11 @@ function AdminView({
                   </>
                 )}
                 {settingsTab === "roles" && (
-                  <button className="settings-primary" type="button">
+                  <button
+                    className="settings-primary"
+                    type="button"
+                    onClick={() => handleOpenRoleModal("recepcion", "create")}
+                  >
                     + Nuevo Rol
                   </button>
                 )}
@@ -312,110 +452,46 @@ function AdminView({
                       </span>
                     </div>
                     <div className="users-cell">
-                      <button
-                        className="users-action"
-                        type="button"
-                        onClick={() => handleEditUser(user)}
-                      >
-                        ...
-                      </button>
+                      <div className="users-actions-menu">
+                        <button
+                          className="users-action"
+                          type="button"
+                          onClick={() =>
+                            setActiveUserMenu((prev) =>
+                              prev === user.id ? "" : user.id
+                            )
+                          }
+                        >
+                          ...
+                        </button>
+                        {activeUserMenu === user.id && (
+                          <div className="users-menu">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveUserMenu("");
+                                handleEditUser(user);
+                              }}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveUserMenu("");
+                                setUserToDelete(user);
+                              }}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
                 {!filteredUsers.length && (
                   <div className="empty-state">Sin usuarios para mostrar</div>
-                )}
-                {showUserForm && (
-                  <div className="users-form">
-                    <div className="panel-title">
-                      {userForm.id ? "Editar usuario" : "Crear usuario"}
-                    </div>
-                    <form className="form-grid" onSubmit={handleUserSubmit}>
-                      <label className="field">
-                        <span>Nombre</span>
-                        <input
-                          type="text"
-                          value={userForm.name}
-                          onChange={(event) =>
-                            setUserForm((prev) => ({
-                              ...prev,
-                              name: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className="field">
-                        <span>Email</span>
-                        <input
-                          type="email"
-                          value={userForm.email}
-                          onChange={(event) =>
-                            setUserForm((prev) => ({
-                              ...prev,
-                              email: event.target.value,
-                            }))
-                          }
-                          disabled={Boolean(userForm.id)}
-                        />
-                      </label>
-                      <label className="field">
-                        <span>Rol</span>
-                        <select
-                          value={userForm.role}
-                          onChange={(event) =>
-                            setUserForm((prev) => ({
-                              ...prev,
-                              role: event.target.value,
-                            }))
-                          }
-                        >
-                          {roleOptions.map((role) => (
-                            <option value={role} key={role}>
-                              {role}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="field">
-                        <span>Password</span>
-                        <input
-                          type="password"
-                          value={userForm.password}
-                          onChange={(event) =>
-                            setUserForm((prev) => ({
-                              ...prev,
-                              password: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className="toggle">
-                        <input
-                          type="checkbox"
-                          checked={userForm.is_active}
-                          onChange={(event) =>
-                            setUserForm((prev) => ({
-                              ...prev,
-                              is_active: event.target.checked,
-                            }))
-                          }
-                        />
-                        Activo
-                      </label>
-                      <div className="form-actions">
-                        <button className="primary" type="submit">
-                          {userForm.id ? "Guardar cambios" : "Crear"}
-                        </button>
-                        <button
-                          className="ghost"
-                          type="button"
-                          onClick={() => setShowUserForm(false)}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </form>
-                  </div>
                 )}
               </div>
             )}
@@ -434,7 +510,11 @@ function AdminView({
                             {meta.subtitle}
                           </div>
                         </div>
-                        <button className="role-edit" type="button">
+                        <button
+                          className="role-edit"
+                          type="button"
+                          onClick={() => handleOpenRoleModal(role, "edit")}
+                        >
                           edit
                         </button>
                       </div>
@@ -533,6 +613,288 @@ function AdminView({
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {showUserForm && (
+              <div className="modal-overlay">
+                <div className="modal-card">
+                  <div className="modal-header">
+                    <div className="modal-title">
+                      {userForm.id ? "Editar usuario" : "Crear usuario"}
+                    </div>
+                    <button
+                      className="modal-close"
+                      type="button"
+                      onClick={() => setShowUserForm(false)}
+                    >
+                      x
+                    </button>
+                  </div>
+                  <form
+                    className="form-grid"
+                    onSubmit={async (event) => {
+                      await handleUserSubmit(event);
+                      setShowUserForm(false);
+                    }}
+                  >
+                    <label className="field">
+                      <span>Nombre</span>
+                      <input
+                        type="text"
+                        value={userForm.name}
+                        onChange={(event) =>
+                          setUserForm((prev) => ({
+                            ...prev,
+                            name: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Email</span>
+                      <input
+                        type="email"
+                        value={userForm.email}
+                        onChange={(event) =>
+                          setUserForm((prev) => ({
+                            ...prev,
+                            email: event.target.value,
+                          }))
+                        }
+                        disabled={Boolean(userForm.id)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Rol</span>
+                      <select
+                        value={userForm.role}
+                        onChange={(event) =>
+                          setUserForm((prev) => ({
+                            ...prev,
+                            role: event.target.value,
+                          }))
+                        }
+                      >
+                        {roleOptions.map((role) => (
+                          <option value={role} key={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Password</span>
+                      <input
+                        type="password"
+                        value={userForm.password}
+                        onChange={(event) =>
+                          setUserForm((prev) => ({
+                            ...prev,
+                            password: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={userForm.is_active}
+                        onChange={(event) =>
+                          setUserForm((prev) => ({
+                            ...prev,
+                            is_active: event.target.checked,
+                          }))
+                        }
+                      />
+                      Activo
+                    </label>
+                    <div className="form-actions">
+                      <button className="primary" type="submit">
+                        {userForm.id ? "Guardar cambios" : "Crear"}
+                      </button>
+                      <button
+                        className="ghost"
+                        type="button"
+                        onClick={() => setShowUserForm(false)}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {userToDelete && (
+              <div className="modal-overlay">
+                <div className="modal-card">
+                  <div className="modal-header">
+                    <div className="modal-title">Eliminar usuario</div>
+                    <button
+                      className="modal-close"
+                      type="button"
+                      onClick={() => setUserToDelete(null)}
+                    >
+                      x
+                    </button>
+                  </div>
+                  <p className="modal-text">
+                    Vas a desactivar a <strong>{userToDelete.email}</strong>. ¿Continuar?
+                  </p>
+                  <div className="form-actions">
+                    <button
+                      className="danger"
+                      type="button"
+                      onClick={() => {
+                        handleUserDelete?.(userToDelete.id);
+                        setUserToDelete(null);
+                      }}
+                    >
+                      Eliminar
+                    </button>
+                    <button
+                      className="ghost"
+                      type="button"
+                      onClick={() => setUserToDelete(null)}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {roleModalOpen && (
+              <div className="modal-overlay">
+                <div className="modal-card modal-lg">
+                  <div className="modal-header">
+                    <div className="modal-title">
+                      {roleModalMode === "create" ? "Nuevo rol" : "Editar rol"}
+                    </div>
+                    <button
+                      className="modal-close"
+                      type="button"
+                      onClick={() => setRoleModalOpen(false)}
+                    >
+                      x
+                    </button>
+                  </div>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Rol</span>
+                      {roleModalMode === "edit" ? (
+                        <select value={roleFormRole} disabled>
+                          {roleOptions.map((role) => (
+                            <option value={role} key={role}>
+                              {role}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <>
+                          <input
+                            type="text"
+                            list="role-options"
+                            placeholder="nuevo-rol"
+                            value={roleFormRole}
+                            onChange={(event) => {
+                              const nextRole = event.target.value.trim();
+                              setRoleFormRole(nextRole);
+                              setRoleDraft(normalizePermissions(nextRole));
+                            }}
+                          />
+                          <datalist id="role-options">
+                            {roleOptions.map((role) => (
+                              <option value={role} key={role} />
+                            ))}
+                          </datalist>
+                        </>
+                      )}
+                    </label>
+                  </div>
+
+                  <div className="roles-edit-grid">
+                    <div className="role-block">
+                      <div className="role-block-title">Modulos</div>
+                      {MAIN_MODULES.map((module) => (
+                        <div className="perm-row" key={module.id}>
+                          <span>{module.label}</span>
+                          <label className="perm-toggle">
+                            <input
+                              type="checkbox"
+                              checked={roleDraft?.modules?.[module.id]?.read || false}
+                              onChange={() =>
+                                handleRoleDraftToggle("modules", module.id, "read")
+                              }
+                            />
+                            <span />
+                          </label>
+                          <label className="perm-toggle">
+                            <input
+                              type="checkbox"
+                              checked={roleDraft?.modules?.[module.id]?.write || false}
+                              onChange={() =>
+                                handleRoleDraftToggle("modules", module.id, "write")
+                              }
+                            />
+                            <span />
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="role-block">
+                      <div className="role-block-title">Configuracion</div>
+                      {SETTINGS_MODULES.map((module) => (
+                        <div className="perm-row" key={module.id}>
+                          <span>{module.label}</span>
+                          <label className="perm-toggle">
+                            <input
+                              type="checkbox"
+                              checked={roleDraft?.settings?.[module.id]?.read || false}
+                              onChange={() =>
+                                handleRoleDraftToggle("settings", module.id, "read")
+                              }
+                            />
+                            <span />
+                          </label>
+                          <label className="perm-toggle">
+                            <input
+                              type="checkbox"
+                              checked={roleDraft?.settings?.[module.id]?.write || false}
+                              onChange={() =>
+                                handleRoleDraftToggle("settings", module.id, "write")
+                              }
+                            />
+                            <span />
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="form-actions">
+                    {roleModalMode === "edit" && (
+                      <button className="danger" type="button" onClick={handleDeleteRoleDraft}>
+                        Eliminar rol
+                      </button>
+                    )}
+                    <button
+                      className="primary"
+                      type="button"
+                      onClick={handleSaveRoleDraft}
+                      disabled={!roleFormRole}
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      className="ghost"
+                      type="button"
+                      onClick={() => setRoleModalOpen(false)}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

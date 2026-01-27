@@ -231,7 +231,7 @@ function ChatView({
               lastMessageAt &&
               (!lastReadAt ||
                 new Date(lastMessageAt).getTime() > new Date(lastReadAt).getTime()) &&
-              conversation.last_message_direction !== "out";
+              conversation.last_message_direction === "in";
             return (
               <button
                 key={conversation.id}

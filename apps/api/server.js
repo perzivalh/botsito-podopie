@@ -902,6 +902,21 @@ app.get("/api/me", requireAuth, (req, res) => {
   return res.json({ user: req.user });
 });
 
+app.get("/api/tenant", requireAuth, async (req, res) => {
+  if (!req.user?.tenant_id) {
+    return res.json({ tenant: null });
+  }
+  if (!process.env.CONTROL_DB_URL) {
+    return res.json({ tenant: null });
+  }
+  const control = getControlClient();
+  const tenant = await control.tenant.findUnique({
+    where: { id: req.user.tenant_id },
+    select: { id: true, name: true, slug: true, plan: true, is_active: true },
+  });
+  return res.json({ tenant });
+});
+
 app.get("/api/branding", requireAuth, async (req, res) => {
   if (!req.user?.tenant_id) {
     return res.json({ branding: null });
@@ -1993,6 +2008,37 @@ app.patch(
   }
 );
 
+app.delete(
+  "/api/admin/users/:id",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res) => {
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { is_active: false },
+    });
+    if (process.env.CONTROL_DB_URL && req.user.tenant_id) {
+      try {
+        const control = getControlClient();
+        await control.userControl.updateMany({
+          where: { email: user.email },
+          data: { is_active: false },
+        });
+      } catch (error) {
+        logger.error("control.user_sync_failed", {
+          message: error.message || error,
+        });
+      }
+    }
+    await logAudit({
+      userId: req.user.id,
+      action: "user.disabled",
+      data: { user_id: user.id, email: user.email },
+    });
+    return res.json({ user });
+  }
+);
+
 app.patch(
   "/api/admin/role-permissions",
   requireAuth,
@@ -2026,6 +2072,25 @@ app.patch(
       data: { roles: savedRoles },
     });
     return res.json({ ok: true, roles: savedRoles });
+  }
+);
+
+app.delete(
+  "/api/admin/role-permissions/:role",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res) => {
+    const role = String(req.params.role || "").trim();
+    if (!ROLE_OPTIONS.includes(role)) {
+      return res.status(400).json({ error: "invalid_role" });
+    }
+    await prisma.rolePermission.deleteMany({ where: { role } });
+    await logAudit({
+      userId: req.user.id,
+      action: "role_permissions.deleted",
+      data: { role },
+    });
+    return res.json({ ok: true });
   }
 );
 

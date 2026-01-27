@@ -10,7 +10,7 @@ import AdminView from "./components/AdminView.jsx";
 import SuperAdminView from "./components/SuperAdminView.jsx";
 
 const STATUS_OPTIONS = ["open", "pending", "closed"];
-const ROLE_OPTIONS = ["admin", "recepcion", "caja", "marketing", "doctor"];
+const BASE_ROLE_OPTIONS = ["admin", "recepcion", "caja", "marketing", "doctor"];
 const DEFAULT_ROLE_PERMISSIONS = {
   admin: {
     modules: {
@@ -426,6 +426,7 @@ function App() {
   );
   const [user, setUser] = useState(null);
   const [branding, setBranding] = useState(null);
+  const [tenantMeta, setTenantMeta] = useState(null);
   const [tenantChannels, setTenantChannels] = useState([]);
   const [channelForm, setChannelForm] = useState({ id: "", display_name: "" });
   const [lastReadMap, setLastReadMap] = useState(() => {
@@ -465,6 +466,12 @@ function App() {
   const [rolePermissionsLoaded, setRolePermissionsLoaded] = useState(false);
   const [rolePermissionsDirty, setRolePermissionsDirty] = useState(false);
   const [rolePermissionsSaving, setRolePermissionsSaving] = useState(false);
+  const roleOptions = useMemo(() => {
+    const extras = Object.keys(rolePermissions || {}).filter(
+      (role) => !BASE_ROLE_OPTIONS.includes(role)
+    );
+    return [...BASE_ROLE_OPTIONS, ...extras];
+  }, [rolePermissions]);
 
   const [filters, setFilters] = useState({
     status: "",
@@ -749,6 +756,19 @@ function App() {
           return;
         }
         setBranding(null);
+      });
+    apiGet("/api/tenant")
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setTenantMeta(data.tenant || null);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setTenantMeta(null);
       });
     apiGet("/api/channels")
       .then((data) => {
@@ -1408,6 +1428,18 @@ function App() {
     }
   }
 
+  async function handleUserDelete(userId) {
+    if (!userId) {
+      return;
+    }
+    try {
+      await apiDelete(`/api/admin/users/${userId}`);
+      await loadAdminUsers();
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
   async function loadSettings() {
     try {
       const data = await apiGet("/api/admin/settings");
@@ -1472,6 +1504,19 @@ function App() {
       });
       setChannelForm({ id: "", display_name: "" });
       await loadTenantChannels();
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
+  async function handleRoleDelete(role) {
+    try {
+      await apiDelete(`/api/admin/role-permissions/${role}`);
+      setRolePermissions((prev) => {
+        const next = { ...prev };
+        delete next[role];
+        return next;
+      });
     } catch (error) {
       setPageError(normalizeError(error));
     }
@@ -1801,16 +1846,19 @@ function App() {
           setSettingsTab={setSettingsTab}
           rolePermissions={rolePermissions}
           setRolePermissions={handleRolePermissionsUpdate}
+          defaultRolePermissions={DEFAULT_ROLE_PERMISSIONS}
           currentRole={user.role}
           isAdmin={isAdmin}
           adminUsers={adminUsers}
           userForm={userForm}
           setUserForm={setUserForm}
-          roleOptions={ROLE_OPTIONS}
+          roleOptions={roleOptions}
           handleUserSubmit={handleUserSubmit}
+          handleUserDelete={handleUserDelete}
           settings={settings}
           setSettings={setSettings}
           handleSaveSettings={handleSaveSettings}
+          planName={tenantMeta?.plan || ""}
           branches={branches}
           services={services}
           branchForm={branchForm}
@@ -1827,6 +1875,7 @@ function App() {
           setChannelForm={setChannelForm}
           handleChannelSelect={handleChannelSelect}
           handleChannelSubmit={handleChannelSubmit}
+          handleRoleDelete={handleRoleDelete}
           templates={templates}
           templateForm={templateForm}
           setTemplateForm={setTemplateForm}
