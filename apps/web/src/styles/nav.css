@@ -1,19 +1,19 @@
 .nav-rail {
   background: var(--panel);
   border-right: 1px solid var(--border);
-  padding: 1.2rem 0.7rem;
+  padding: 1.5rem 1rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 1.2rem;
   height: 100%;
   position: relative;
 }
 
 .rail-logo {
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
   border: none;
   background: var(--accent);
   color: #fff;
@@ -21,11 +21,18 @@
   align-items: center;
   justify-content: center;
   box-shadow: 0 10px 20px var(--shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+
+.rail-logo:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 24px var(--shadow);
 }
 
 .rail-logo img {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
   border-radius: 8px;
 }
@@ -33,37 +40,47 @@
 .logo-mark {
   font-weight: 700;
   font-family: "Space Grotesk", sans-serif;
-  font-size: 1.1rem;
+  font-size: 1.4rem;
 }
 
 .rail-nav {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  gap: 1rem;
+  width: 100%;
+  align-items: center;
 }
 
 .rail-button {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  width: 50px;
+  height: 50px;
+  border-radius: 16px;
   border: 1px solid transparent;
-  background: var(--panel);
+  background: transparent;
   color: #94a3b8;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: relative;
 }
 
 .rail-button:hover {
-  transform: translateY(-1px);
+  background: var(--panel-muted);
+  color: var(--ink);
+  transform: translateY(-2px);
 }
 
 .rail-button.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-soft);
-  color: var(--accent);
-  box-shadow: 0 8px 18px var(--shadow);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 8px 20px -4px var(--accent-soft);
+}
+
+.rail-button.active .rail-icon {
+  /* Ensure icon color is white when active */
+  color: #fff;
 }
 
 .rail-button:disabled {
@@ -73,12 +90,18 @@
 }
 
 .rail-icon {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
+  stroke-width: 2px;
 }
 
 .rail-spacer {
   flex: 1;
+}
+
+/* Ensure secondary buttons (bottom) also match size */
+.rail-button:last-of-type {
+  margin-bottom: 0.5rem;
 }
 
 .rail-profile {
@@ -86,44 +109,55 @@
 }
 
 .profile-button {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--panel-muted);
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  border: 2px solid var(--border);
+  background: var(--panel);
   color: var(--accent);
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s ease;
+  overflow: hidden;
+  font-size: 1.1rem;
+}
+
+.profile-button:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .profile-button.active {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .profile-card {
   position: absolute;
-  bottom: 60px;
-  left: 64px;
-  width: 220px;
+  bottom: 10px;
+  left: 70px;
+  width: 260px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 1rem;
-  box-shadow: 0 14px 30px var(--shadow);
+  border-radius: 20px;
+  padding: 1.2rem;
+  box-shadow: 0 20px 40px -10px var(--shadow);
   display: grid;
-  gap: 0.5rem;
+  gap: 0.8rem;
   animation: fadeUp 0.25s ease both;
-  z-index: 20;
+  z-index: 100;
 }
 
 .profile-title {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--ink);
 }
 
 .profile-meta,
 .profile-role {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--muted);
 }

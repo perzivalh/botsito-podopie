@@ -746,6 +746,55 @@ router.get("/audit", requireAuth, requireRole("admin"), async (req, res) => {
     return res.json({ logs });
 });
 
+// ==========================================
+// BOTS (Tenant Bot Management)
+// ==========================================
+
+const { getTenantBots, updateTenantBotStatus } = require("../../services/tenantBots");
+
+// GET /api/admin/bots
+// Returns bots assigned to this tenant by SuperAdmin
+router.get("/bots", requireAuth, requireRole("admin"), async (req, res) => {
+    const tenantId = req.user.tenant_id;
+    if (!tenantId) {
+        return res.status(400).json({ error: "tenant_not_found" });
+    }
+    try {
+        const bots = await getTenantBots(tenantId);
+        return res.json({ bots });
+    } catch (error) {
+        logger.error("bots.list_failed", { message: error.message });
+        return res.status(500).json({ error: "load_failed" });
+    }
+});
+
+// PATCH /api/admin/bots/:id
+// Toggle bot active/inactive for this tenant
+router.patch("/bots/:id", requireAuth, requireRole("admin"), async (req, res) => {
+    const tenantId = req.user.tenant_id;
+    if (!tenantId) {
+        return res.status(400).json({ error: "tenant_not_found" });
+    }
+
+    const isActive = req.body?.is_active;
+    if (isActive === undefined) {
+        return res.status(400).json({ error: "missing_is_active" });
+    }
+
+    try {
+        const updated = await updateTenantBotStatus(req.params.id, Boolean(isActive));
+        await logAudit({
+            userId: req.user.id,
+            action: "bot.toggled",
+            data: { tenant_bot_id: req.params.id, is_active: isActive },
+        });
+        return res.json({ bot: updated });
+    } catch (error) {
+        logger.error("bots.toggle_failed", { message: error.message });
+        return res.status(500).json({ error: "update_failed" });
+    }
+});
+
 // Export utilities for campaign processing
 module.exports = router;
 module.exports.queueCampaignMessages = queueCampaignMessages;

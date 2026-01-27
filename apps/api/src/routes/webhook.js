@@ -25,6 +25,7 @@ const {
     addTagToConversation,
     removeTagFromConversation,
 } = require("../services/conversations");
+const { getActiveTenantFlow } = require("../services/tenantBots");
 const { setLastWebhook } = require("./debug");
 
 // Rate limiting
@@ -311,7 +312,21 @@ router.post("/webhook", async (req, res) => {
                         }
 
                         if (message.type === "text") {
-                            void handleIncomingText(waId, incomingText);
+                            // Check if tenant has an active flow
+                            const activeFlow = await getActiveTenantFlow(tenantContext.tenantId);
+                            if (!activeFlow) {
+                                logger.info("bot.no_active_flow", { tenant_id: tenantContext.tenantId });
+                                continue; // No flow active, don't respond
+                            }
+
+                            // If flow uses legacy handler (flows.js), use the old logic
+                            if (activeFlow.flow.useLegacyHandler) {
+                                void handleIncomingText(waId, incomingText);
+                            } else {
+                                // TODO: Implement dynamic flow execution
+                                // For now, use legacy handler for all flows
+                                void handleIncomingText(waId, incomingText);
+                            }
                             continue;
                         }
 
@@ -334,7 +349,19 @@ router.post("/webhook", async (req, res) => {
                                 );
                                 continue;
                             }
-                            void handleInteractive(waId, selection?.id);
+
+                            // Check if tenant has an active flow for interactive
+                            const activeFlow = await getActiveTenantFlow(tenantContext.tenantId);
+                            if (!activeFlow) {
+                                logger.info("bot.no_active_flow", { tenant_id: tenantContext.tenantId });
+                                continue;
+                            }
+
+                            if (activeFlow.flow.useLegacyHandler) {
+                                void handleInteractive(waId, selection?.id);
+                            } else {
+                                void handleInteractive(waId, selection?.id);
+                            }
                         }
                     }
                 })();
