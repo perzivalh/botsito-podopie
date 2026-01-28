@@ -649,6 +649,8 @@ module.exports = {
   hasOdooConfig,
   normalizeCI,
   normalizePhone,
+  searchRead,
+  safeSearchRead,
   findPartnerByCI,
   findPartnerByPhone,
   getPartnerSummary,
