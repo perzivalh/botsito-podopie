@@ -220,7 +220,7 @@ async function createDraft(data, userId = null) {
     }
 
     // Log audit
-    await prisma.auditLog.create({
+    await prisma.auditLogTenant.create({
         data: {
             user_id: userId,
             action: "template_draft_created",
@@ -266,7 +266,7 @@ async function updateDraft(id, data, userId = null) {
     });
 
     // Log audit
-    await prisma.auditLog.create({
+    await prisma.auditLogTenant.create({
         data: {
             user_id: userId,
             action: "template_draft_updated",
@@ -304,7 +304,7 @@ async function updateVariableMappings(templateId, mappings, userId = null) {
     }
 
     // Log audit
-    await prisma.auditLog.create({
+    await prisma.auditLogTenant.create({
         data: {
             user_id: userId,
             action: "template_mappings_updated",
@@ -361,7 +361,7 @@ async function submitToMeta(templateId, userId = null) {
         });
 
         // Log audit
-        await prisma.auditLog.create({
+        await prisma.auditLogTenant.create({
             data: {
                 user_id: userId,
                 action: "template_submit_failed",
@@ -387,7 +387,7 @@ async function submitToMeta(templateId, userId = null) {
     });
 
     // Log audit
-    await prisma.auditLog.create({
+    await prisma.auditLogTenant.create({
         data: {
             user_id: userId,
             action: "template_submitted",
@@ -434,7 +434,7 @@ async function deleteTemplateLocal(templateId, userId = null) {
     }
 
     // Log audit
-    await prisma.auditLog.create({
+    await prisma.auditLogTenant.create({
         data: {
             user_id: userId,
             action: "template_deleted",
@@ -510,7 +510,7 @@ async function handleTemplateStatusUpdate(event) {
     });
 
     // Log audit
-    await prisma.auditLog.create({
+    await prisma.auditLogTenant.create({
         data: {
             action: "template_status_webhook",
             entity: "template",

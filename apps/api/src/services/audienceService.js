@@ -27,7 +27,7 @@ async function createSegment(data, userId = null) {
     });
 
     // Audit log
-    await prisma.auditLog.create({
+    await prisma.auditLogTenant.create({
         data: {
             user_id: userId,
             action: "audience_created",
@@ -59,9 +59,6 @@ async function getAllSegments(options = {}) {
         include: {
             created_by_user: {
                 select: { id: true, name: true },
-            },
-            _count: {
-                select: { campaigns: true },
             },
         },
     });
@@ -108,7 +105,7 @@ async function updateSegment(id, data, userId = null) {
     }
 
     // Audit log
-    await prisma.auditLog.create({
+    await prisma.auditLogTenant.create({
         data: {
             user_id: userId,
             action: "audience_updated",
@@ -130,7 +127,7 @@ async function deleteSegment(id, userId = null) {
         data: { is_active: false },
     });
 
-    await prisma.auditLog.create({
+    await prisma.auditLogTenant.create({
         data: {
             user_id: userId,
             action: "audience_deleted",
