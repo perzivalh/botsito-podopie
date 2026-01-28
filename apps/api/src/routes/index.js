@@ -13,6 +13,12 @@ const adminRoutes = require("./admin");
 const superadminRoutes = require("./superadmin");
 const debugRoutes = require("./debug");
 
+// New routes for Campaigns/Templates module
+const templatesRoutes = require("./templates");
+const audiencesRoutes = require("./audiences");
+const contactsRoutes = require("./contacts");
+const campaignsRoutes = require("./campaigns");
+
 /**
  * Configura todas las rutas en la aplicación Express
  * @param {express.Application} app - Aplicación Express
@@ -33,6 +39,12 @@ function setupRoutes(app) {
     // Rutas de API que requieren autenticación
     app.use("/api", conversationsRoutes);
     app.use("/api", dashboardRoutes);
+
+    // Campaigns and Templates API
+    app.use("/api", templatesRoutes);
+    app.use("/api", audiencesRoutes);
+    app.use("/api", contactsRoutes);
+    app.use("/api", campaignsRoutes);
 
     // Rutas de administración
     app.use("/api/admin", adminRoutes);

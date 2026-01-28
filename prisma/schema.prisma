@@ -7,6 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ==================== ENUMS ====================
+
 enum UserRole {
   admin
   recepcion
@@ -42,19 +44,47 @@ enum VerificationMethod {
   manual
 }
 
+// Template-related enums
+enum TemplateStatus {
+  DRAFT      // Local only, not submitted to Meta
+  PENDING    // Submitted to Meta, awaiting review
+  APPROVED   // Ready to use
+  REJECTED   // Rejected by Meta
+  PAUSED     // Paused by Meta (quality issues)
+  DISABLED   // Disabled by Meta
+}
+
+enum TemplateCategory {
+  MARKETING
+  UTILITY
+  AUTHENTICATION
+}
+
+enum VariableSourceType {
+  odoo    // Field from Odoo (res.partner, medical.patient)
+  db      // Field from local DB (conversation, campaign)
+  static  // Static text value
+}
+
+// Campaign-related enums
 enum CampaignStatus {
   draft
   scheduled
-  sending
-  sent
+  running
+  paused
+  completed
   failed
 }
 
-enum CampaignMessageStatus {
-  queued
-  sent
-  failed
+enum RecipientStatus {
+  pending    // Queued for sending
+  sent       // API returned success
+  delivered  // Webhook confirmed delivery
+  read       // Webhook confirmed read
+  failed     // Send failed
 }
+
+// ==================== USER & AUTH ====================
 
 model User {
   id            String     @id @default(cuid())
@@ -64,28 +94,34 @@ model User {
   role          UserRole   @default(recepcion)
   is_active     Boolean    @default(true)
   created_at    DateTime   @default(now())
-  AuditLog      AuditLog[]    @relation("UserAuditLogs")
-  Conversation  Conversation[] @relation("AssignedConversations")
-  Campaign      Campaign[] @relation("CampaignCreatedBy")
+  
+  AuditLog          AuditLog[]         @relation("UserAuditLogs")
+  Conversation      Conversation[]     @relation("AssignedConversations")
+  Campaign          Campaign[]         @relation("CampaignCreatedBy")
+  MetaTemplate      MetaTemplate[]     @relation("MetaTemplateCreatedBy")
+  AudienceSegment   AudienceSegment[]  @relation("AudienceCreatedBy")
 }
 
+// ==================== CONVERSATION & MESSAGING ====================
+
 model Conversation {
-  id               String              @id @default(cuid())
-  wa_id            String              @unique
-  phone_e164       String
-  display_name     String?
-  status           ConversationStatus  @default(open)
-  assigned_user_id String?
-  partner_id       Int?
-  patient_id       Int?
-  verified_at      DateTime?
+  id                  String              @id @default(cuid())
+  wa_id               String              @unique
+  phone_e164          String
+  display_name        String?
+  status              ConversationStatus  @default(open)
+  assigned_user_id    String?
+  partner_id          Int?
+  patient_id          Int?
+  verified_at         DateTime?
   verification_method VerificationMethod?
-  last_message_at  DateTime?
-  created_at       DateTime            @default(now())
-  messages         Message[]
-  tags             ConversationTag[]
-  assigned_user    User?               @relation("AssignedConversations", fields: [assigned_user_id], references: [id])
-  campaign_messages CampaignMessage[]
+  last_message_at     DateTime?
+  created_at          DateTime            @default(now())
+  
+  messages            Message[]
+  tags                ConversationTag[]
+  assigned_user       User?               @relation("AssignedConversations", fields: [assigned_user_id], references: [id])
+  campaign_recipients CampaignRecipient[]
 
   @@index([status])
   @@index([assigned_user_id])
@@ -122,6 +158,8 @@ model ConversationTag {
   @@id([conversation_id, tag_id])
 }
 
+// ==================== SETTINGS & AUDIT ====================
+
 model Settings {
   id                 Int      @id @default(1)
   bot_enabled        Boolean  @default(true)
@@ -130,12 +168,18 @@ model Settings {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
-  user_id   String?
-  action    String
-  data_json Json
+  id         String   @id @default(cuid())
+  user_id    String?
+  action     String
+  entity     String?   // e.g., "template", "campaign", "audience"
+  entity_id  String?   // ID of the affected entity
+  data_json  Json
   created_at DateTime @default(now())
-  user      User?    @relation("UserAuditLogs", fields: [user_id], references: [id])
+  user       User?    @relation("UserAuditLogs", fields: [user_id], references: [id])
+
+  @@index([action])
+  @@index([entity, entity_id])
+  @@index([created_at])
 }
 
 model RolePermission {
@@ -146,32 +190,34 @@ model RolePermission {
   updated_at       DateTime @updatedAt
 }
 
+// ==================== CATALOG ====================
+
 model Branch {
-  id         String   @id @default(cuid())
-  code       String   @unique
+  id         String          @id @default(cuid())
+  code       String          @unique
   name       String
   address    String
   lat        Float
   lng        Float
   hours_text String
   phone      String?
-  is_active  Boolean  @default(true)
-  created_at DateTime @default(now())
+  is_active  Boolean         @default(true)
+  created_at DateTime        @default(now())
   services   ServiceBranch[]
 }
 
 model Service {
-  id           String   @id @default(cuid())
-  code         String   @unique
+  id           String          @id @default(cuid())
+  code         String          @unique
   name         String
   subtitle     String?
   description  String
   price_bob    Int
   duration_min Int?
   image_url    String?
-  is_featured  Boolean  @default(false)
-  is_active    Boolean  @default(true)
-  created_at   DateTime @default(now())
+  is_featured  Boolean         @default(false)
+  is_active    Boolean         @default(true)
+  created_at   DateTime        @default(now())
   branches     ServiceBranch[]
 
   @@index([is_featured])
@@ -187,49 +233,203 @@ model ServiceBranch {
   @@id([service_id, branch_id])
 }
 
-model Template {
-  id               String   @id @default(cuid())
-  name             String   @unique
-  language         String
-  category         String?
-  body_preview     String
-  variables_schema Json?
-  is_active        Boolean  @default(true)
-  created_at       DateTime @default(now())
-  campaigns        Campaign[]
+// ==================== META TEMPLATES ====================
+
+model MetaTemplate {
+  id                 String           @id @default(cuid())
+  name               String
+  meta_template_id   String?          // ID from Meta API (null if draft)
+  category           TemplateCategory @default(UTILITY)
+  language           String           @default("es")
+  status             TemplateStatus   @default(DRAFT)
+  quality_score      String?          // HIGH, MEDIUM, LOW, UNKNOWN
+  components_json    Json             @default("[]") // Header, body, footer, buttons
+  body_text          String?          // Plain text body for preview
+  header_type        String?          // none, text, image, video, document
+  header_content     String?          // Header text or media URL
+  footer_text        String?
+  buttons_json       Json?            // Button configurations
+  last_synced_at     DateTime?
+  meta_response_json Json?            // Raw response from Meta API
+  rejection_reason   String?
+  created_by_user_id String?
+  is_deleted         Boolean          @default(false)
+  created_at         DateTime         @default(now())
+  updated_at         DateTime         @updatedAt
+
+  variable_mappings MetaTemplateVariableMapping[]
+  campaigns         Campaign[]
+  created_by_user   User?                         @relation("MetaTemplateCreatedBy", fields: [created_by_user_id], references: [id])
+
+  @@unique([name, language])
+  @@index([status])
+  @@index([is_deleted])
 }
+
+model MetaTemplateVariableMapping {
+  id            String             @id @default(cuid())
+  template_id   String
+  var_index     Int                // 1, 2, 3... matches {{1}}, {{2}}, etc.
+  display_name  String?            // Human-readable name shown in UI
+  source_type   VariableSourceType
+  source_path   String             // e.g. "res.partner.name", "conversation.display_name"
+  default_value String?            // Fallback if source is empty
+  transform     String?            // Optional: "uppercase", "date_format:DD/MM/YYYY", etc.
+
+  template MetaTemplate @relation(fields: [template_id], references: [id], onDelete: Cascade)
+
+  @@unique([template_id, var_index])
+}
+
+// ==================== AUDIENCES & CONTACTS ====================
+
+model AudienceSegment {
+  id                 String     @id @default(cuid())
+  name               String
+  description        String?
+  rules_json         Json       // Array of filter rules
+  estimated_count    Int        @default(0)
+  is_active          Boolean    @default(true)
+  created_by_user_id String?
+  created_at         DateTime   @default(now())
+  updated_at         DateTime   @updatedAt
+
+  campaigns       Campaign[]
+  created_by_user User?      @relation("AudienceCreatedBy", fields: [created_by_user_id], references: [id])
+
+  @@index([is_active])
+}
+
+model OdooContact {
+  id              String   @id @default(cuid())
+  odoo_partner_id Int      @unique // res.partner.id from Odoo
+  name            String
+  phone_e164      String?
+  phone_raw       String?  // Original phone from Odoo
+  email           String?
+  vat             String?  // CI/VAT
+  is_patient      Boolean  @default(false)
+  odoo_patient_id Int?
+  tags_json       Json?    // Tags from Odoo if any
+  extra_data_json Json?    // Additional Odoo fields
+  last_synced_at  DateTime @default(now())
+  created_at      DateTime @default(now())
+
+  campaign_recipients CampaignRecipient[]
+
+  @@index([phone_e164])
+  @@index([is_patient])
+}
+
+// ==================== CAMPAIGNS ====================
 
 model Campaign {
-  id                  String             @id @default(cuid())
-  name                String
-  template_id         String
-  audience_filter     Json
-  status              CampaignStatus     @default(draft)
-  created_by_user_id  String?
-  scheduled_for       DateTime?
-  created_at          DateTime           @default(now())
-  template            Template           @relation(fields: [template_id], references: [id])
-  created_by_user     User?              @relation("CampaignCreatedBy", fields: [created_by_user_id], references: [id])
-  messages            CampaignMessage[]
+  id                 String         @id @default(cuid())
+  name               String
+  segment_id         String?
+  template_id        String
+  status             CampaignStatus @default(draft)
+  scheduled_at       DateTime?
+  started_at         DateTime?
+  completed_at       DateTime?
+  total_recipients   Int            @default(0)
+  sent_count         Int            @default(0)
+  delivered_count    Int            @default(0)
+  read_count         Int            @default(0)
+  failed_count       Int            @default(0)
+  reply_count        Int            @default(0)
+  error_message      String?
+  created_by_user_id String?
+  created_at         DateTime       @default(now())
+  updated_at         DateTime       @updatedAt
+
+  segment         AudienceSegment?    @relation(fields: [segment_id], references: [id])
+  template        MetaTemplate        @relation(fields: [template_id], references: [id])
+  created_by_user User?               @relation("CampaignCreatedBy", fields: [created_by_user_id], references: [id])
+  recipients      CampaignRecipient[]
 
   @@index([status])
+  @@index([scheduled_at])
+  @@index([created_at])
 }
 
-model CampaignMessage {
-  id               String               @id @default(cuid())
-  campaign_id      String
-  conversation_id  String?
-  wa_id            String
-  phone_e164       String
-  status           CampaignMessageStatus @default(queued)
-  error_json       Json?
-  sent_at          DateTime?
-  campaign         Campaign             @relation(fields: [campaign_id], references: [id])
-  conversation     Conversation?        @relation(fields: [conversation_id], references: [id])
+model CampaignRecipient {
+  id              String          @id @default(cuid())
+  campaign_id     String
+  conversation_id String?
+  odoo_contact_id String?
+  wa_id           String
+  phone_e164      String
+  recipient_name  String?
+  status          RecipientStatus @default(pending)
+  wamid           String?         // WhatsApp Message ID from API response
+  error_json      Json?
+  variables_json  Json?           // Resolved variables for this recipient
+  queued_at       DateTime        @default(now())
+  sent_at         DateTime?
+  delivered_at    DateTime?
+  read_at         DateTime?
+  failed_at       DateTime?
 
-  @@index([campaign_id])
+  campaign     Campaign      @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversation_id], references: [id])
+  odoo_contact OdooContact?  @relation(fields: [odoo_contact_id], references: [id])
+
+  @@index([campaign_id, status])
+  @@index([wamid])
+  @@index([wa_id])
+}
+
+// ==================== WEBHOOK LOGS ====================
+
+model TemplateWebhookLog {
+  id            String   @id @default(cuid())
+  event_type    String   // message_template_status_update, quality_update, etc.
+  template_name String?
+  template_id   String?
+  raw_json      Json
+  processed     Boolean  @default(false)
+  error_message String?
+  created_at    DateTime @default(now())
+
+  @@index([event_type])
+  @@index([processed])
+  @@index([created_at])
+}
+
+model MessageStatusLog {
+  id         String   @id @default(cuid())
+  wamid      String
+  status     String   // sent, delivered, read, failed
+  error_json Json?
+  raw_json   Json
+  processed  Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  @@index([wamid])
+  @@index([processed])
+}
+
+// ==================== CAMPAIGN JOB QUEUE ====================
+
+model CampaignJob {
+  id           String    @id @default(cuid())
+  campaign_id  String    @unique
+  status       String    @default("pending") // pending, running, paused, completed, failed
+  progress     Int       @default(0)         // Number of recipients processed
+  last_error   String?
+  locked_at    DateTime?
+  locked_by    String?   // Worker ID that locked this job
+  started_at   DateTime?
+  completed_at DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
   @@index([status])
+  @@index([locked_at])
 }
+
+// ==================== PROSPECT (kept for compatibility) ====================
 
 model Prospect {
   id           String   @id @default(cuid())

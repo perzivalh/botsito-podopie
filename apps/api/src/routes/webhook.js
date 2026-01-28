@@ -29,6 +29,16 @@ const {
 const { getActiveTenantFlow } = require("../services/tenantBots");
 const { setLastWebhook } = require("./debug");
 
+// Template and Campaign webhook handlers
+let templateService = null;
+let campaignJobQueue = null;
+try {
+    templateService = require("../services/templateService");
+    campaignJobQueue = require("../services/campaignJobQueue");
+} catch (e) {
+    logger.warn("Template/Campaign services not loaded", { error: e.message });
+}
+
 // Rate limiting
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 30 * 1000;
@@ -183,6 +193,56 @@ router.post("/webhook", async (req, res) => {
     });
 
     res.status(200).send("EVENT_RECEIVED");
+
+    // Handle template status updates (webhooks from Meta about template approval/rejection)
+    const field = req.body?.entry?.[0]?.changes?.[0]?.field;
+    if (field === "message_template_status_update" && templateService) {
+        const templateEvent = value;
+        setImmediate(async () => {
+            try {
+                await templateService.handleTemplateStatusUpdate(templateEvent);
+                logger.info("Template status webhook processed", { event: templateEvent.event });
+            } catch (error) {
+                logger.error("Template status webhook error", { error: error.message });
+            }
+        });
+        return;
+    }
+
+    // Handle template quality updates
+    if (field === "message_template_quality_update" && templateService) {
+        const qualityEvent = value;
+        setImmediate(async () => {
+            try {
+                await templateService.handleTemplateQualityUpdate(qualityEvent);
+                logger.info("Template quality webhook processed");
+            } catch (error) {
+                logger.error("Template quality webhook error", { error: error.message });
+            }
+        });
+        return;
+    }
+
+    // Handle message status updates (sent, delivered, read, failed)
+    const statuses = value?.statuses;
+    if (Array.isArray(statuses) && statuses.length > 0 && campaignJobQueue) {
+        setImmediate(async () => {
+            for (const statusUpdate of statuses) {
+                try {
+                    await campaignJobQueue.handleMessageStatusUpdate(
+                        statusUpdate.id,
+                        statusUpdate.status,
+                        statusUpdate.timestamp
+                    );
+                } catch (error) {
+                    logger.error("Message status update error", {
+                        wamid: statusUpdate.id,
+                        error: error.message,
+                    });
+                }
+            }
+        });
+    }
 
     if (!Array.isArray(messages) || messages.length === 0) {
         return;

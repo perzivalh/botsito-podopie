@@ -8,6 +8,8 @@ import DashboardView from "./components/DashboardView.jsx";
 import CampaignsView from "./components/CampaignsView.jsx";
 import AdminView from "./components/AdminView.jsx";
 import SuperAdminView from "./components/SuperAdminView.jsx";
+import TemplatesView from "./components/TemplatesView.jsx";
+import TemplateEditorView from "./components/TemplateEditorView.jsx";
 
 // Importar desde módulos
 import { STATUS_OPTIONS, BASE_ROLE_OPTIONS, DEFAULT_ROLE_PERMISSIONS } from "./constants";
@@ -118,6 +120,9 @@ function App() {
   const [campaigns, setCampaigns] = useState([]);
   const [campaignMessages, setCampaignMessages] = useState([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [selectedTemplateForEdit, setSelectedTemplateForEdit] = useState(null);
+  const [audiences, setAudiences] = useState([]);
+  const [contactStats, setContactStats] = useState(null);
   const [campaignForm, setCampaignForm] = useState({
     name: "",
     template_id: "",
@@ -856,8 +861,70 @@ function App() {
 
   async function loadTemplates() {
     try {
-      const data = await apiGet("/api/admin/templates");
+      // Try new API first, fallback to old admin API
+      const data = await apiGet("/api/templates").catch(() => apiGet("/api/admin/templates"));
       setTemplates(data.templates || []);
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
+  async function syncTemplatesFromMeta() {
+    try {
+      await apiGet("/api/templates/sync");
+      await loadTemplates();
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
+  async function saveTemplateDraft(data) {
+    try {
+      if (selectedTemplateForEdit?.id) {
+        await apiPatch(`/api/templates/${selectedTemplateForEdit.id}`, data);
+      } else {
+        const result = await apiPost("/api/templates/draft", data);
+        setSelectedTemplateForEdit(result.template);
+      }
+      await loadTemplates();
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
+  async function submitTemplateToMeta() {
+    if (!selectedTemplateForEdit?.id) return;
+    try {
+      await apiPost(`/api/templates/${selectedTemplateForEdit.id}/submit`);
+      setSelectedTemplateForEdit(null);
+      await loadTemplates();
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
+  async function loadAudiences() {
+    try {
+      const data = await apiGet("/api/audiences");
+      setAudiences(data.segments || []);
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
+  async function importOdooContacts() {
+    try {
+      await apiPost("/api/contacts/import-odoo");
+      await loadContactStats();
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
+  async function loadContactStats() {
+    try {
+      const data = await apiGet("/api/contacts/stats");
+      setContactStats(data);
     } catch (error) {
       setPageError(normalizeError(error));
     }
