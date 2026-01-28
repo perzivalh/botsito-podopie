@@ -22,7 +22,11 @@ router.get("/audiences", async (req, res) => {
         const segments = await audienceService.getAllSegments({ search });
         res.json({ segments });
     } catch (error) {
-        logger.error("Failed to get audiences", { error: error.message });
+        logger.error("Failed to get audiences", { error: error.message, stack: error.stack });
+        // If table doesn't exist or other prisma error, return empty array
+        if (error.code === "P2021" || error.message?.includes("does not exist")) {
+            return res.json({ segments: [], error: "Table not migrated yet" });
+        }
         res.status(500).json({ error: error.message });
     }
 });
