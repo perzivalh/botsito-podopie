@@ -651,7 +651,7 @@
   position: relative;
   display: grid;
   gap: 1.6rem;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .sa-bot-card::before {
@@ -687,6 +687,11 @@
 .sa-bot-icon-large svg {
   width: 28px;
   height: 28px;
+}
+
+.sa-bot-title-group {
+  flex: 1;
+  min-width: 0;
 }
 
 .sa-bot-title-group h3 {
