@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+﻿import React, { useState } from "react";
 import { PlusIcon, SmartphoneIcon, EditIcon, TrashIcon } from "./icons";
 import { WhatsAppLineModal } from "./WhatsAppLineModal";
 
@@ -104,7 +104,9 @@ export function WhatsAppLinesSection({ channels = [], tenantId, onRefresh }) {
                             </div>
                             <div className="sa-line-detail">
                                 <span className="sa-detail-label">Token Verificación</span>
-                                <span className="sa-detail-value">{line.verify_token.substring(0, 15)}...</span>
+                                <span className="sa-detail-value">
+                                    {line.verify_token ? `${line.verify_token.substring(0, 15)}...` : "-"}
+                                </span>
                             </div>
                         </div>
 
