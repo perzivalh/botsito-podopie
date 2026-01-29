@@ -75,7 +75,7 @@ function formatTimestamp(value) {
   };
 }
 
-function exportCsv(rows) {
+function exportCsv(rows, format = "csv") {
   const header = ["timestamp", "usuario", "email", "accion", "modulo", "data"];
   const lines = [header.join(",")];
   rows.forEach((log) => {
@@ -92,10 +92,16 @@ function exportCsv(rows) {
     ];
     lines.push(row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","));
   });
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const content = lines.join("\n");
+  const mime =
+    format === "excel"
+      ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      : "text/csv;charset=utf-8;";
+  const filename = format === "excel" ? "audit_logs.xlsx" : "audit_logs.csv";
+  const blob = new Blob([content], { type: mime });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = "audit_logs.csv";
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -140,7 +146,7 @@ function AuditSection() {
     fetchLogs({ pageOverride: 1 });
   };
 
-  const handleExport = async () => {
+  const handleExport = async (format = "csv") => {
     const params = new URLSearchParams();
     params.set("page", "1");
     params.set("page_size", "1000");
@@ -148,7 +154,7 @@ function AuditSection() {
     if (fromDate) params.set("from", fromDate);
     if (toDate) params.set("to", toDate);
     const data = await apiGet(`/api/admin/audit?${params.toString()}`);
-    exportCsv(data.logs || []);
+    exportCsv(data.logs || [], format);
   };
 
   const pagination = useMemo(() => {
@@ -170,9 +176,22 @@ function AuditSection() {
             Monitorea acciones de usuarios y eventos del sistema
           </div>
         </div>
-        <button className="audit-export" type="button" onClick={handleExport}>
-          ⭳ Exportar CSV/Excel
-        </button>
+        <div className="audit-export-group">
+          <button
+            className="audit-export"
+            type="button"
+            onClick={() => handleExport("excel")}
+          >
+            ⭳ Exportar Excel
+          </button>
+          <button
+            className="audit-export outline"
+            type="button"
+            onClick={() => handleExport("csv")}
+          >
+            ⭳ Exportar CSV
+          </button>
+        </div>
       </div>
 
       <div className="audit-filters">

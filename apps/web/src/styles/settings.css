@@ -1126,6 +1126,19 @@
   box-shadow: 0 10px 24px rgba(239, 68, 68, 0.3);
 }
 
+.audit-export-group {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.audit-export.outline {
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  box-shadow: none;
+}
+
 .audit-filters {
   display: grid;
   grid-template-columns: 1.4fr 0.6fr 0.6fr auto;
