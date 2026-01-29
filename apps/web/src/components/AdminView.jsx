@@ -55,6 +55,7 @@ function AdminView({
   setTemplateForm,
   handleTemplateSubmit,
   handleTemplateSubmitToMeta,
+  handleTemplateDelete,
   handleSyncTemplates,
   auditLogs,
   formatDate,
@@ -198,6 +199,7 @@ function AdminView({
             setTemplateForm={setTemplateForm}
             handleTemplateSubmit={handleTemplateSubmit}
             handleTemplateSubmitToMeta={handleTemplateSubmitToMeta}
+            handleTemplateDelete={handleTemplateDelete}
             handleSyncTemplates={handleSyncTemplates}
           />
         )}

@@ -1314,6 +1314,18 @@ function App() {
     }
   }
 
+  async function handleTemplateDelete(templateId) {
+    if (!templateId) {
+      return;
+    }
+    try {
+      await apiDelete(`/api/templates/${templateId}`);
+      await loadTemplates();
+    } catch (error) {
+      setPageError(normalizeError(error));
+    }
+  }
+
   async function loadAuditLogs() {
     try {
       const data = await apiGet("/api/admin/audit?limit=200");
@@ -1524,6 +1536,7 @@ function App() {
           setTemplateForm={setTemplateForm}
           handleTemplateSubmit={handleTemplateSubmit}
           handleTemplateSubmitToMeta={handleTemplateSubmitToMeta}
+          handleTemplateDelete={handleTemplateDelete}
           handleSyncTemplates={handleSyncTemplates}
           auditLogs={auditLogs}
           formatDate={formatDate}

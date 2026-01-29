@@ -31,6 +31,7 @@ function TemplatesSection({
     setTemplateForm,
     handleTemplateSubmit,
     handleTemplateSubmitToMeta,
+    handleTemplateDelete,
     handleSyncTemplates,
     onLoadTemplates,
 }) {
@@ -40,6 +41,7 @@ function TemplatesSection({
     const [syncing, setSyncing] = useState(false);
     const [filterStatus, setFilterStatus] = useState("");
     const [submitting, setSubmitting] = useState(false);
+    const [openMenuId, setOpenMenuId] = useState(null);
 
     // New form state for editor
     const [editorForm, setEditorForm] = useState({
@@ -101,6 +103,20 @@ function TemplatesSection({
         });
         setVariableMappings(template.variable_mappings || []);
         setView("editor");
+    };
+
+    const handleDeleteTemplate = async (template) => {
+        if (!template?.id || !handleTemplateDelete) {
+            return;
+        }
+        const confirmed = window.confirm(
+            `¿Eliminar la plantilla "${template.name}"? Esta acción la ocultará localmente y la eliminará de Meta si aplica.`
+        );
+        if (!confirmed) {
+            return;
+        }
+        await handleTemplateDelete(template.id);
+        setOpenMenuId(null);
     };
 
     const handleSaveTemplate = async (e) => {
@@ -257,7 +273,38 @@ function TemplatesSection({
                                     }}>
                                         👁 Previsualizar
                                     </button>
-                                    <button className="btn-more">⋯</button>
+                                    <div
+                                        className="template-card-menu"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <button
+                                            className="btn-more"
+                                            type="button"
+                                            onClick={() =>
+                                                setOpenMenuId((prev) => (prev === template.id ? null : template.id))
+                                            }
+                                        >
+                                            ⋯
+                                        </button>
+                                        {openMenuId === template.id && (
+                                            <div className="template-menu-dropdown">
+                                                <button
+                                                    type="button"
+                                                    className="menu-item"
+                                                    onClick={() => handleSelectTemplate(template)}
+                                                >
+                                                    Editar
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="menu-item danger"
+                                                    onClick={() => handleDeleteTemplate(template)}
+                                                >
+                                                    Eliminar
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         );
@@ -500,3 +547,4 @@ function TemplatesSection({
 }
 
 export default TemplatesSection;
+

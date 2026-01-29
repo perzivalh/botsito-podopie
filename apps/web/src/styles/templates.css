@@ -538,6 +538,42 @@
     cursor: pointer;
 }
 
+.template-card-menu {
+    position: relative;
+}
+
+.template-menu-dropdown {
+    position: absolute;
+    right: 0;
+    top: 24px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+    min-width: 140px;
+    z-index: 20;
+    overflow: hidden;
+}
+
+.template-menu-dropdown .menu-item {
+    width: 100%;
+    text-align: left;
+    padding: 10px 14px;
+    background: none;
+    border: none;
+    font-size: 13px;
+    color: #0f172a;
+    cursor: pointer;
+}
+
+.template-menu-dropdown .menu-item:hover {
+    background: #f8fafc;
+}
+
+.template-menu-dropdown .menu-item.danger {
+    color: #dc2626;
+}
+
 /* Create Card */
 .template-card-create {
     border: 2px dashed #e2e8f0;

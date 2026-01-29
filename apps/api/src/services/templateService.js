@@ -417,11 +417,16 @@ async function deleteTemplateLocal(templateId, userId = null) {
         throw new Error("Template not found");
     }
 
-    // Mark as deleted locally
-    await prisma.metaTemplate.update({
-        where: { id: templateId },
-        data: { is_deleted: true },
-    });
+    // Mark as deleted locally (avoid FK surprises by clearing mappings first)
+    await prisma.$transaction([
+        prisma.metaTemplateVariableMapping.deleteMany({
+            where: { template_id: templateId },
+        }),
+        prisma.metaTemplate.update({
+            where: { id: templateId },
+            data: { is_deleted: true },
+        }),
+    ]);
 
     // If template exists in Meta, try to delete there too
     if (template.meta_template_id && template.status !== "DRAFT") {
