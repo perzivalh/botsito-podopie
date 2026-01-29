@@ -758,15 +758,44 @@ router.get("/campaigns/:id/messages", requireAuth, requireRole(["admin", "market
 
 // GET /api/admin/audit
 router.get("/audit", requireAuth, requireRole("admin"), async (req, res) => {
-    const limit = Math.min(Number(req.query.limit) || 200, 500);
-    const action = req.query.action;
-    const where = action ? { action } : undefined;
-    const logs = await prisma.auditLogTenant.findMany({
-        where,
-        orderBy: { created_at: "desc" },
-        take: limit,
-    });
-    return res.json({ logs });
+    const pageSize = Math.min(Math.max(Number(req.query.page_size) || 10, 5), 100);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const action = req.query.action ? String(req.query.action) : "";
+    const q = req.query.q ? String(req.query.q).trim() : "";
+    const from = req.query.from ? new Date(String(req.query.from)) : null;
+    const to = req.query.to ? new Date(String(req.query.to)) : null;
+    const where = {};
+    if (action) {
+        where.action = action;
+    }
+    if (from && !Number.isNaN(from.getTime())) {
+        where.created_at = { ...(where.created_at || {}), gte: from };
+    }
+    if (to && !Number.isNaN(to.getTime())) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);
+        where.created_at = { ...(where.created_at || {}), lte: end };
+    }
+    if (q) {
+        where.OR = [
+            { action: { contains: q, mode: "insensitive" } },
+            { user: { name: { contains: q, mode: "insensitive" } } },
+            { user: { email: { contains: q, mode: "insensitive" } } },
+        ];
+    }
+    const [logs, total] = await Promise.all([
+        prisma.auditLogTenant.findMany({
+            where,
+            orderBy: { created_at: "desc" },
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+            include: {
+                user: { select: { id: true, name: true, email: true } },
+            },
+        }),
+        prisma.auditLogTenant.count({ where }),
+    ]);
+    return res.json({ logs, total, page, page_size: pageSize });
 });
 
 // ==========================================

@@ -298,12 +298,14 @@ router.post("/conversations/:id/tags", requireAuth, async (req, res) => {
             conversation = await addTagToConversation({
                 conversationId: req.params.id,
                 tagName: name,
+                userId: req.user.id,
             });
         }
         for (const name of removes) {
             conversation = await removeTagFromConversation({
                 conversationId: req.params.id,
                 tagName: name,
+                userId: req.user.id,
             });
         }
     } catch (error) {

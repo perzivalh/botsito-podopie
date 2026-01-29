@@ -247,7 +247,7 @@ async function ensureTagByName(name, color) {
   return tag;
 }
 
-async function addTagToConversation({ conversationId, tagName, color }) {
+async function addTagToConversation({ conversationId, tagName, color, userId }) {
   const tag = await ensureTagByName(tagName, color);
   await prisma.conversationTag.upsert({
     where: {
@@ -268,11 +268,18 @@ async function addTagToConversation({ conversationId, tagName, color }) {
     select: CONVERSATION_SELECT,
   });
   const formatted = formatConversation(updated);
+  if (userId) {
+    await logAudit({
+      userId,
+      action: "conversation.tag_added",
+      data: { conversation_id: conversationId, tag: tagName },
+    });
+  }
   emitEvent("conversation:update", { conversation: formatted });
   return formatted;
 }
 
-async function removeTagFromConversation({ conversationId, tagName }) {
+async function removeTagFromConversation({ conversationId, tagName, userId }) {
   const tag = await prisma.tag.findUnique({ where: { name: tagName } });
   if (!tag) {
     return prisma.conversation.findUnique({
@@ -291,6 +298,13 @@ async function removeTagFromConversation({ conversationId, tagName }) {
     select: CONVERSATION_SELECT,
   });
   const formatted = formatConversation(updated);
+  if (userId) {
+    await logAudit({
+      userId,
+      action: "conversation.tag_removed",
+      data: { conversation_id: conversationId, tag: tagName },
+    });
+  }
   emitEvent("conversation:update", { conversation: formatted });
   return formatted;
 }
