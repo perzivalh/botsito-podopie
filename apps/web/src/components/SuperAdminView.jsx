@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPatch, apiPost, apiDelete } from "../api";
 import BotSection from "./superadmin/BotSection";
+import { useToast } from "./ToastProvider.jsx";
 
 // Importar desde módulos
 import {
@@ -42,6 +43,7 @@ function SuperAdminView({
   const [availableFlows, setAvailableFlows] = useState([]);
   const [tenantBots, setTenantBots] = useState([]);
   const [botsLoading, setBotsLoading] = useState(false);
+  const { pushToast } = useToast();
 
   const routeTenantId = useMemo(() => {
     if (!route) {
@@ -290,18 +292,50 @@ function SuperAdminView({
       });
       if (response.tenant_bot) {
         setTenantBots((prev) => [response.tenant_bot, ...prev]);
+        pushToast({ message: "Bot agregado correctamente" });
       }
     } catch (err) {
       setError(err.message || "Error al agregar bot.");
+      pushToast({ type: "error", message: err.message || "Error al agregar bot" });
     }
   }
 
   async function handleRemoveBot(botId) {
+    const bot = tenantBots.find((item) => item.id === botId);
     try {
       await apiDelete(`/api/superadmin/tenant-bots/${botId}`);
       setTenantBots((prev) => prev.filter((b) => b.id !== botId));
+      pushToast({
+        message: "Bot eliminado correctamente",
+        actionLabel: "DESHACER",
+        duration: 8000,
+        onAction: async () => {
+          try {
+            if (!bot) {
+              return;
+            }
+            const response = await apiPost("/api/superadmin/tenant-bots", {
+              tenant_id: bot.tenant_id,
+              flow_id: bot.flow_id,
+            });
+            if (response?.tenant_bot && bot.is_active === false) {
+              await apiPatch(`/api/superadmin/tenant-bots/${response.tenant_bot.id}`, {
+                is_active: false,
+              });
+            }
+            await loadTenantBots(editTenantId);
+            pushToast({ message: "Bot restaurado" });
+          } catch (restoreError) {
+            pushToast({
+              type: "error",
+              message: restoreError?.message || "No se pudo restaurar el bot",
+            });
+          }
+        },
+      });
     } catch (err) {
       setError(err.message || "Error al eliminar bot.");
+      pushToast({ type: "error", message: err.message || "Error al eliminar bot" });
     }
   }
 
@@ -508,11 +542,14 @@ function SuperAdminView({
         setBaselineForm(normalized);
         setBaselineActive(editTenantActive);
         setStatusNote("Cambios guardados");
+        pushToast({ message: "Tenant actualizado correctamente" });
       } else {
         resetProvisionForm();
+        pushToast({ message: "Tenant creado correctamente" });
       }
     } catch (err) {
       setError(err.message || "No se pudo guardar tenant.");
+      pushToast({ type: "error", message: err.message || "No se pudo guardar tenant" });
     } finally {
       setProvisionBusy(false);
     }

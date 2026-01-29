@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, setToken } from "./api";
 import { connectSocket } from "./socket";
+import { useToast } from "./components/ToastProvider.jsx";
 import NavRail from "./components/NavRail.jsx";
 import ChatView from "./components/ChatView.jsx";
 import DashboardView from "./components/DashboardView.jsx";
@@ -114,6 +115,7 @@ function App() {
   const [tagInput, setTagInput] = useState("");
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [pageError, setPageError] = useState("");
+  const { pushToast } = useToast();
 
   const [metrics, setMetrics] = useState(null);
   const [templates, setTemplates] = useState([]);
@@ -983,8 +985,10 @@ function App() {
         verified_only: false,
       });
       await loadCampaigns();
+      pushToast({ message: "Campaña creada correctamente" });
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al crear campaña" });
     }
   }
 
@@ -1029,6 +1033,7 @@ function App() {
           is_active: userForm.is_active,
           password: userForm.password || undefined,
         });
+        pushToast({ message: "Usuario actualizado correctamente" });
       } else {
         await apiPost("/api/admin/users", {
           name: userForm.name.trim(),
@@ -1036,6 +1041,7 @@ function App() {
           role: userForm.role,
           password: userForm.password,
         });
+        pushToast({ message: "Usuario creado correctamente" });
       }
       setUserForm({
         id: "",
@@ -1048,6 +1054,7 @@ function App() {
       await loadAdminUsers();
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al guardar usuario" });
     }
   }
 
@@ -1058,8 +1065,26 @@ function App() {
     try {
       await apiDelete(`/api/admin/users/${userId}`);
       await loadAdminUsers();
+      pushToast({
+        message: "Usuario eliminado correctamente",
+        actionLabel: "DESHACER",
+        duration: 8000,
+        onAction: async () => {
+          try {
+            await apiPatch(`/api/admin/users/${userId}`, { is_active: true });
+            await loadAdminUsers();
+            pushToast({ message: "Usuario restaurado" });
+          } catch (err) {
+            pushToast({
+              type: "error",
+              message: normalizeError(err) || "No se pudo restaurar el usuario",
+            });
+          }
+        },
+      });
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al eliminar usuario" });
     }
   }
 
@@ -1127,12 +1152,15 @@ function App() {
       });
       setChannelForm({ id: "", display_name: "" });
       await loadTenantChannels();
+      pushToast({ message: "Canal actualizado correctamente" });
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al guardar canal" });
     }
   }
 
   async function handleRoleDelete(role) {
+    const currentPermissions = rolePermissions?.[role];
     try {
       await apiDelete(`/api/admin/role-permissions/${role}`);
       setRolePermissions((prev) => {
@@ -1140,8 +1168,31 @@ function App() {
         delete next[role];
         return next;
       });
+      pushToast({
+        message: "Rol eliminado correctamente",
+        actionLabel: "DESHACER",
+        duration: 8000,
+        onAction: async () => {
+          if (!currentPermissions) {
+            return;
+          }
+          try {
+            await apiPatch("/api/admin/role-permissions", {
+              permissions: { [role]: currentPermissions },
+            });
+            setRolePermissions((prev) => ({ ...prev, [role]: currentPermissions }));
+            pushToast({ message: "Rol restaurado" });
+          } catch (err) {
+            pushToast({
+              type: "error",
+              message: normalizeError(err) || "No se pudo restaurar el rol",
+            });
+          }
+        },
+      });
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al eliminar rol" });
     }
   }
 
@@ -1164,8 +1215,10 @@ function App() {
     try {
       if (branchForm.id) {
         await apiPatch(`/api/admin/branches/${branchForm.id}`, payload);
+        pushToast({ message: "Sucursal actualizada correctamente" });
       } else {
         await apiPost("/api/admin/branches", payload);
+        pushToast({ message: "Sucursal creada correctamente" });
       }
       setBranchForm({
         id: "",
@@ -1181,6 +1234,7 @@ function App() {
       await loadCatalog();
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al guardar sucursal" });
     }
   }
 
@@ -1188,8 +1242,26 @@ function App() {
     try {
       await apiDelete(`/api/admin/branches/${branchId}`);
       await loadCatalog();
+      pushToast({
+        message: "Sucursal eliminada correctamente",
+        actionLabel: "DESHACER",
+        duration: 8000,
+        onAction: async () => {
+          try {
+            await apiPatch(`/api/admin/branches/${branchId}`, { is_active: true });
+            await loadCatalog();
+            pushToast({ message: "Sucursal restaurada" });
+          } catch (err) {
+            pushToast({
+              type: "error",
+              message: normalizeError(err) || "No se pudo restaurar la sucursal",
+            });
+          }
+        },
+      });
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al eliminar sucursal" });
     }
   }
 
@@ -1215,8 +1287,10 @@ function App() {
     try {
       if (serviceForm.id) {
         await apiPatch(`/api/admin/services/${serviceForm.id}`, payload);
+        pushToast({ message: "Servicio actualizado correctamente" });
       } else {
         await apiPost("/api/admin/services", payload);
+        pushToast({ message: "Servicio creado correctamente" });
       }
       setServiceForm({
         id: "",
@@ -1233,6 +1307,7 @@ function App() {
       await loadCatalog();
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al guardar servicio" });
     }
   }
 
@@ -1240,8 +1315,26 @@ function App() {
     try {
       await apiDelete(`/api/admin/services/${serviceId}`);
       await loadCatalog();
+      pushToast({
+        message: "Servicio eliminado correctamente",
+        actionLabel: "DESHACER",
+        duration: 8000,
+        onAction: async () => {
+          try {
+            await apiPatch(`/api/admin/services/${serviceId}`, { is_active: true });
+            await loadCatalog();
+            pushToast({ message: "Servicio restaurado" });
+          } catch (err) {
+            pushToast({
+              type: "error",
+              message: normalizeError(err) || "No se pudo restaurar el servicio",
+            });
+          }
+        },
+      });
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al eliminar servicio" });
     }
   }
 
@@ -1288,16 +1381,19 @@ function App() {
         await apiPut(`/api/templates/${data.id}/mappings`, {
           mappings: variableMappings,
         });
+        pushToast({ message: "Borrador actualizado correctamente" });
       } else {
         result = await apiPost("/api/templates/draft", {
           ...payload,
           variable_mappings: variableMappings,
         });
+        pushToast({ message: "Borrador creado correctamente" });
       }
       await loadTemplates();
       return result?.template || null;
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al guardar plantilla" });
       return null;
     }
   }
@@ -1309,8 +1405,10 @@ function App() {
     try {
       await apiPost(`/api/templates/${templateId}/submit`, {});
       await loadTemplates();
+      pushToast({ message: "Plantilla enviada a revisión de Meta" });
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al enviar a Meta" });
     }
   }
 
@@ -1321,8 +1419,26 @@ function App() {
     try {
       await apiDelete(`/api/templates/${templateId}`);
       await loadTemplates();
+      pushToast({
+        message: "Plantilla eliminada correctamente",
+        actionLabel: "DESHACER",
+        duration: 8000,
+        onAction: async () => {
+          try {
+            await apiPost(`/api/templates/${templateId}/restore`, {});
+            await loadTemplates();
+            pushToast({ message: "Plantilla restaurada" });
+          } catch (err) {
+            pushToast({
+              type: "error",
+              message: normalizeError(err) || "No se pudo restaurar la plantilla",
+            });
+          }
+        },
+      });
     } catch (error) {
       setPageError(normalizeError(error));
+      pushToast({ type: "error", message: normalizeError(error) || "Error al eliminar plantilla" });
     }
   }
 

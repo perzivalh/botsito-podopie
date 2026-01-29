@@ -457,6 +457,42 @@ async function deleteTemplateLocal(templateId, userId = null) {
 }
 
 /**
+ * Restore a soft-deleted template
+ */
+async function restoreTemplateLocal(templateId, userId = null) {
+    const template = await prisma.metaTemplate.findUnique({
+        where: { id: templateId },
+    });
+
+    if (!template) {
+        throw new Error("Template not found");
+    }
+
+    if (!template.is_deleted) {
+        return getTemplateById(templateId);
+    }
+
+    await prisma.metaTemplate.update({
+        where: { id: templateId },
+        data: { is_deleted: false },
+    });
+
+    await prisma.auditLogTenant.create({
+        data: {
+            action: "template_restored",
+            data_json: {
+                entity: "template",
+                entity_id: templateId,
+                name: template.name,
+            },
+            ...(userId ? { user: { connect: { id: userId } } } : {}),
+        },
+    });
+
+    return getTemplateById(templateId);
+}
+
+/**
  * Handle template status update from webhook
  */
 async function handleTemplateStatusUpdate(event) {
@@ -596,6 +632,7 @@ module.exports = {
     updateVariableMappings,
     submitToMeta,
     deleteTemplateLocal,
+    restoreTemplateLocal,
     handleTemplateStatusUpdate,
     handleTemplateQualityUpdate,
 };

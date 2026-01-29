@@ -142,4 +142,19 @@ router.delete("/templates/:id", requireRole(["admin"]), async (req, res) => {
     }
 });
 
+/**
+ * POST /api/templates/:id/restore
+ * Restore a soft-deleted template
+ */
+router.post("/templates/:id/restore", requireRole(["admin", "marketing"]), async (req, res) => {
+    try {
+        const userId = req.user?.id || null;
+        const template = await templateService.restoreTemplateLocal(req.params.id, userId);
+        res.json({ template });
+    } catch (error) {
+        logger.error("Failed to restore template", { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
 module.exports = router;

@@ -64,6 +64,20 @@ function TemplatesSection({
         }
     }, []);
 
+    useEffect(() => {
+        if (!openMenuId) {
+            return undefined;
+        }
+        const handleClickOutside = (event) => {
+            if (event.target.closest(".template-card-menu")) {
+                return;
+            }
+            setOpenMenuId(null);
+        };
+        document.addEventListener("click", handleClickOutside);
+        return () => document.removeEventListener("click", handleClickOutside);
+    }, [openMenuId]);
+
     const handleSync = async () => {
         setSyncing(true);
         try {

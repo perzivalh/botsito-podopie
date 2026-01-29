@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { apiGet, apiPost } from "../api";
+import { useToast } from "./ToastProvider.jsx";
 
 const FALLBACK_SEGMENTS = [
   {
@@ -57,6 +58,7 @@ function CampaignsView({
 }) {
   const [templateSearch, setTemplateSearch] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const { pushToast } = useToast();
 
   // Modal states
   const [showImportModal, setShowImportModal] = useState(false);
@@ -114,8 +116,10 @@ function CampaignsView({
       setImportResult(res);
       loadSegments(); // Refresh segments
       loadOdooStats();
+      pushToast({ message: "Contactos importados correctamente" });
     } catch (err) {
       setImportResult({ error: err.message || "Error al importar" });
+      pushToast({ type: "error", message: err.message || "Error al importar contactos" });
     } finally {
       setImporting(false);
     }
@@ -134,8 +138,9 @@ function CampaignsView({
       setShowSegmentModal(false);
       setSegmentForm({ name: "", description: "", rules: [] });
       loadSegments();
+      pushToast({ message: "Segmento creado correctamente" });
     } catch (err) {
-      alert("Error: " + (err.message || "No se pudo crear el segmento"));
+      pushToast({ type: "error", message: err.message || "No se pudo crear el segmento" });
     } finally {
       setSavingSegment(false);
     }
