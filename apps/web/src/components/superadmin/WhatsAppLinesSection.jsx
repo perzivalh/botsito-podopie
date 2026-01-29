@@ -61,71 +61,72 @@ export function WhatsAppLinesSection({ channels = [], tenantId, onRefresh }) {
     };
 
     return (
-        <div className="sa-lines-section">
-            <div className="sa-lines-header">
+        <section className="sa-lines-card">
+            <header className="sa-lines-header">
                 <div className="sa-lines-title">
                     <div className="sa-lines-icon">
                         <SmartphoneIcon width={24} height={24} />
                     </div>
                     <div>
-                        <h3 className="sa-title" style={{ fontSize: "1.2rem", marginTop: 0 }}>LÍNEAS DE WHATSAPP CLOUD</h3>
-                        <p className="sa-subtitle" style={{ fontSize: "0.8rem", margin: 0 }}>Gestiona las conexiones activas de WhatsApp</p>
+                        <h3>Líneas de WhatsApp Cloud</h3>
+                        <p>Gestiona las conexiones activas de WhatsApp para este tenant.</p>
                     </div>
                 </div>
                 <button className="sa-btn primary" onClick={handleAdd}>
                     <PlusIcon width={16} height={16} style={{ marginRight: "0.5rem" }} />
                     Agregar Nueva Línea
                 </button>
-            </div>
+            </header>
 
-            <div className="sa-lines-grid">
-                {channels.map((line) => (
-                    <div key={line.id} className={`sa-line-card ${!line.is_active ? 'opacity-75' : ''}`}>
-                        <div className="sa-line-header">
-                            <div className="sa-line-name">
-                                {line.display_name || "Sin nombre"}
+            <div className="sa-lines-body">
+                <div className="sa-lines-grid">
+                    {channels.map((line) => (
+                        <div key={line.id} className={`sa-line-card ${!line.is_active ? "opacity-75" : ""}`}>
+                            <div className="sa-line-header">
+                                <div>
+                                    <div className="sa-line-name">{line.display_name || "Sin nombre"}</div>
+                                    <div className="sa-line-meta">
+                                        ID: {line.phone_number_id}
+                                    </div>
+                                </div>
+                                <div className={`sa-line-status ${line.is_active ? "active" : ""}`} title={line.is_active ? "Activo" : "Inactivo"} />
                             </div>
-                            <div className={`sa-line-status ${line.is_active ? "active" : ""}`} title={line.is_active ? "Activo" : "Inactivo"} />
-                        </div>
 
-                        <div className="sa-line-badges">
-                            {line.is_default && <span className="sa-line-badge default">DEFAULT</span>}
-                            {!line.is_active && <span className="sa-status warn">INACTIVO</span>}
-                        </div>
-
-                        <div className="sa-line-details">
-                            <div className="sa-line-detail">
-                                <span className="sa-detail-label">Phone ID</span>
-                                <span className="sa-detail-value">{line.phone_number_id}</span>
+                            <div className="sa-line-badges">
+                                {line.is_default && <span className="sa-line-badge default">DEFAULT</span>}
+                                {!line.is_active && <span className="sa-status warn">INACTIVO</span>}
                             </div>
-                            <div className="sa-line-detail">
-                                <span className="sa-detail-label">WABA ID</span>
-                                <span className="sa-detail-value">{line.waba_id || "-"}</span>
+
+                            <div className="sa-line-details">
+                                <div className="sa-line-detail">
+                                    <span className="sa-detail-label">WABA ID</span>
+                                    <span className="sa-detail-value">{line.waba_id || "-"}</span>
+                                </div>
+                                <div className="sa-line-detail">
+                                    <span className="sa-detail-label">Verify Token</span>
+                                    <span className="sa-detail-value">
+                                        {line.verify_token ? `${line.verify_token.substring(0, 16)}...` : "-"}
+                                    </span>
+                                </div>
                             </div>
-                            <div className="sa-line-detail">
-                                <span className="sa-detail-label">Token Verificación</span>
-                                <span className="sa-detail-value">
-                                    {line.verify_token ? `${line.verify_token.substring(0, 15)}...` : "-"}
-                                </span>
+
+                            <div className="sa-line-actions">
+                                <button className="sa-btn ghost" onClick={() => handleEdit(line)} title="Editar">
+                                    <EditIcon width={16} height={16} />
+                                </button>
+                                <button className="sa-btn ghost" onClick={() => handleDelete(line.id)} title="Eliminar" style={{ color: "#f87171" }}>
+                                    <TrashIcon width={16} height={16} />
+                                </button>
                             </div>
                         </div>
+                    ))}
 
-                        <div className="sa-line-actions">
-                            <button className="sa-btn ghost" onClick={() => handleEdit(line)} title="Editar">
-                                <EditIcon width={16} height={16} />
-                            </button>
-                            <button className="sa-btn ghost" onClick={() => handleDelete(line.id)} title="Eliminar" style={{ color: "#f87171" }}>
-                                <TrashIcon width={16} height={16} />
-                            </button>
+                    <button type="button" className="sa-line-add-card" onClick={handleAdd}>
+                        <div className="sa-add-icon-circle">
+                            <PlusIcon width={24} height={24} />
                         </div>
-                    </div>
-                ))}
-
-                <div className="sa-line-add-card" onClick={handleAdd}>
-                    <div className="sa-add-icon-circle">
-                        <PlusIcon width={24} height={24} />
-                    </div>
-                    <span style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.6)", fontWeight: 600 }}>Nueva Conexión</span>
+                        <span>Nueva Conexión</span>
+                    </button>
                 </div>
             </div>
 
@@ -136,6 +137,6 @@ export function WhatsAppLinesSection({ channels = [], tenantId, onRefresh }) {
                 onSave={handleSave}
                 tenantId={tenantId}
             />
-        </div>
+        </section>
     );
 }
