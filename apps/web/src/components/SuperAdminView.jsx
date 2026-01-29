@@ -1010,7 +1010,6 @@ function SuperAdminView({
                     )}
                   </div>
                 </div>
-              </div>
             </form>
 
             {/* WhatsApp Lines Section - only show when editing existing tenant */}
