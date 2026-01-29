@@ -14,7 +14,7 @@ import {
   PlusIcon,
   GearIcon,
   SearchIcon,
-  SearchIcon,
+
   ArrowRightIcon,
 } from "./superadmin/icons";
 import { WhatsAppLinesSection } from "./superadmin/WhatsAppLinesSection";
@@ -221,7 +221,7 @@ function SuperAdminView({
         slug: tenant.slug || "",
         plan: tenant.plan || "",
         db_url: database?.db_url || "",
-        db_url: database?.db_url || "",
+
         brand_name: branding?.brand_name || "",
         logo_url: branding?.logo_url || "",
         brand_primary: colors?.primary || EMPTY_PROVISION.brand_primary,
@@ -1028,6 +1028,7 @@ function SuperAdminView({
                     )}
                   </div>
                 </div>
+              </div>
             </form>
 
             {/* WhatsApp Lines Section - only show when editing existing tenant */}
