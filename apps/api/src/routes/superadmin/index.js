@@ -259,16 +259,17 @@ router.get("/channels", requireAuth, requireSuperAdmin, async (req, res) => {
         orderBy: { created_at: "desc" },
     });
     return res.json({
-        id: channel.id,
-        tenant_id: channel.tenant_id,
-        provider: channel.provider,
-        phone_number_id: channel.phone_number_id,
-        display_name: channel.display_name || null,
-        waba_id: channel.waba_id || null,
-        is_active: channel.is_active,
-        is_default: channel.is_default,
-        created_at: channel.created_at,
-    })),
+        channels: channels.map((channel) => ({
+            id: channel.id,
+            tenant_id: channel.tenant_id,
+            provider: channel.provider,
+            phone_number_id: channel.phone_number_id,
+            display_name: channel.display_name || null,
+            waba_id: channel.waba_id || null,
+            is_active: channel.is_active,
+            is_default: channel.is_default,
+            created_at: channel.created_at,
+        })),
     });
 });
 
