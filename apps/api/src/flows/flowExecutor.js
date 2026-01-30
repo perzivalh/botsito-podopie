@@ -1,100 +1,324 @@
-/**
+﻿/**
  * Flow Executor Dynamic
- * Ejecuta flows definidos en JSON/JS sin lógica hardcodeada
+ * Ejecuta flows definidos en JSON/JS sin logica hardcodeada
  */
-const { sendText, sendInteractive } = require("../whatsapp");
+const { sendText, sendButtons, sendList } = require("../whatsapp");
 const logger = require("../lib/logger");
 const { normalizeText } = require("../lib/normalize");
+const sessionStore = require("../sessionStore");
+const prisma = require("../db");
+const { getTenantContext } = require("../tenancy/tenantContext");
+const { setConversationStatus, addTagToConversation } = require("../services/conversations");
 
-// Simple store for flow state (in memory for now, ideally in Redis/DB)
-// conversationId -> state
-const flowStates = new Map();
+const MAX_LIST_TITLE = 24;
+const BUTTON_TITLE_LIMIT = 20;
+
+function getCurrentLineId() {
+  return getTenantContext().channel?.phone_number_id || null;
+}
+
+function getStartNodeId(flow) {
+  return (
+    flow.start_node_id ||
+    flow.start ||
+    flow.startNodeId ||
+    flow.startNode ||
+    null
+  );
+}
+
+function buildNodeMap(flow) {
+  const map = new Map();
+  for (const node of flow.nodes || []) {
+    if (node && node.id) {
+      map.set(node.id, node);
+    }
+  }
+  return map;
+}
+
+function truncateTitle(value) {
+  const text = (value || "").toString().trim();
+  if (!text) {
+    return "";
+  }
+  if (text.length <= MAX_LIST_TITLE) {
+    return text;
+  }
+  return `${text.slice(0, MAX_LIST_TITLE - 3)}...`;
+}
+
+function shouldUseList(buttons) {
+  if (!Array.isArray(buttons)) {
+    return false;
+  }
+  if (buttons.length > 3) {
+    return true;
+  }
+  return buttons.some((btn) => (btn.label || "").length > BUTTON_TITLE_LIMIT);
+}
+
+function normalizeLabel(value) {
+  return normalizeText(value || "").replace(/\s+/g, " ").trim();
+}
+
+function isMenuTrigger(normalized) {
+  return ["menu", "inicio", "volver", "empezar"].includes(normalized);
+}
+
+function isHandoffAction(action) {
+  const normalized = normalizeLabel(action);
+  return normalized.includes("handoff") || normalized.includes("atencion_personalizada");
+}
+
+async function setConversationToPending(waId) {
+  const phoneNumberId = getCurrentLineId();
+  if (!waId || !phoneNumberId) {
+    return;
+  }
+  const conversation = await prisma.conversation.findUnique({
+    where: {
+      wa_id_phone_number_id: {
+        wa_id: waId,
+        phone_number_id: phoneNumberId,
+      },
+    },
+    select: { id: true },
+  });
+  if (!conversation) {
+    return;
+  }
+  await setConversationStatus({
+    conversationId: conversation.id,
+    status: "pending",
+    userId: null,
+  });
+  await addTagToConversation({
+    conversationId: conversation.id,
+    tagName: "pendiente_atencion",
+  });
+}
+
+async function sendNode(waId, flow, node, visited) {
+  if (!node) {
+    return;
+  }
+
+  const lineId = getCurrentLineId();
+  await sessionStore.updateSession(waId, lineId, {
+    state: node.id,
+    data: { flow_id: flow.id },
+  });
+
+  if (node.type === "action") {
+    if (isHandoffAction(node.action)) {
+      await setConversationToPending(waId);
+      await sendText(
+        waId,
+        node.text || "Te conecto con un asesor. En breve te responderemos."
+      );
+    } else if (node.text) {
+      await sendText(waId, node.text);
+    }
+    if (node.terminal) {
+      await sessionStore.clearSession(waId, lineId);
+    }
+    return;
+  }
+
+  const bodyText = node.text || node.title || "Selecciona una opcion:";
+
+  const buttons = Array.isArray(node.buttons) ? node.buttons : [];
+  if (buttons.length > 0) {
+    if (shouldUseList(buttons)) {
+      const rows = buttons.map((btn) => ({
+        id: btn.next,
+        title: truncateTitle(btn.label),
+        description: (btn.label || "").length > MAX_LIST_TITLE ? btn.label : "",
+      }));
+      await sendList(
+        waId,
+        null,
+        bodyText,
+        null,
+        node.buttonLabel || "Ver opciones",
+        [
+          {
+            title: node.sectionTitle || "Opciones",
+            rows,
+          },
+        ]
+      );
+    } else {
+      await sendButtons(
+        waId,
+        bodyText,
+        buttons.map((btn) => ({
+          id: btn.next,
+          title: btn.label,
+        }))
+      );
+    }
+  } else {
+    await sendText(waId, bodyText);
+  }
+
+  if (node.terminal) {
+    await sessionStore.clearSession(waId, lineId);
+    return;
+  }
+
+  if (!buttons.length && node.next) {
+    if (!visited.has(node.next)) {
+      visited.add(node.next);
+      const nodeMap = buildNodeMap(flow);
+      const nextNode = nodeMap.get(node.next);
+      if (!nextNode) {
+        logger.warn("flow.next_missing", { flowId: flow.id, next: node.next });
+        return;
+      }
+      await sendNode(waId, flow, nextNode, visited);
+    }
+  }
+}
+
+function findButtonMatch(node, normalized) {
+  if (!node || !Array.isArray(node.buttons)) {
+    return null;
+  }
+  if (!normalized) {
+    return null;
+  }
+  for (const btn of node.buttons) {
+    const label = normalizeLabel(btn.label);
+    if (label === normalized) {
+      return btn;
+    }
+  }
+  return null;
+}
 
 /**
- * Procesa un mensaje de texto entrante para un flow dinámico
+ * Procesa un mensaje de texto entrante para un flow dinamico
  */
 async function executeDynamicFlow(waId, text, flowData, context = {}) {
-    const normalized = normalizeText(text);
-    const flow = flowData.flow;
+  const normalized = normalizeLabel(text);
+  const flow = flowData.flow;
 
-    // 1. Detectar si es un saludo o inicio
-    const isGreeting = ["hola", "inicio", "empezar", "menu", "bot"].includes(normalized);
+  if (!flow) {
+    return;
+  }
 
-    if (isGreeting) {
-        return sendMainMenu(waId, flow);
+  if (Array.isArray(flow.nodes)) {
+    const nodeMap = buildNodeMap(flow);
+    const startNodeId = getStartNodeId(flow);
+    if (!startNodeId || !nodeMap.has(startNodeId)) {
+      logger.warn("flow.missing_start_node", { flowId: flow.id });
+      return;
     }
 
-    // 2. Aquí iría la máquina de estados real
-    // Por ahora, para "Bienvenida General", si dice cualquier cosa que no entendemos,
-    // volvemos a mostrar el menú si es un input corto, o handoff si parece pedir ayuda.
+    if (isMenuTrigger(normalized)) {
+      await sendNode(waId, flow, nodeMap.get(startNodeId), new Set([startNodeId]));
+      return;
+    }
 
-    // Si es un flow simple como "Bienvenida General", probablemente solo queramos mostrar el menú
-    // o procesar las opciones del menú.
+    const session = await sessionStore.getSession(waId, getCurrentLineId());
+    const sessionFlowId = session.data?.flow_id;
+    const currentNodeId =
+      sessionFlowId === flow.id && nodeMap.has(session.state)
+        ? session.state
+        : startNodeId;
+    const currentNode = nodeMap.get(currentNodeId);
+    const match = findButtonMatch(currentNode, normalized);
+    if (match && match.next && nodeMap.has(match.next)) {
+      await sendNode(waId, flow, nodeMap.get(match.next), new Set([match.next]));
+      return;
+    }
 
-    // Como es dynamic, vamos a asumir que cualquier interacción textual 
-    // que no sea una selección de menú (handled by handleInteractive)
-    // debería disparar el menú principal de nuevo para orientación.
+    await sendNode(waId, flow, currentNode, new Set([currentNodeId]));
+    return;
+  }
+
+  // Flow simple con mainMenu
+  const isGreeting = ["hola", "inicio", "empezar", "menu", "bot"].includes(normalized);
+  if (isGreeting) {
     return sendMainMenu(waId, flow);
+  }
+  return sendMainMenu(waId, flow);
 }
 
 /**
- * Procesa una respuesta interactiva (botón/lista)
+ * Procesa una respuesta interactiva (boton/lista)
  */
 async function executeDynamicInteractive(waId, selectionId, flowData, context = {}) {
-    const flow = flowData.flow;
+  const flow = flowData.flow;
+  if (!flow || !selectionId) {
+    return;
+  }
 
-    // Buscar la acción en el flow
-    // En general.flow.js: actions: { HANDOFF: "HANDOFF" }
-
-    if (selectionId === "HANDOFF") {
-        await sendText(waId, "💬 Te estamos conectando con un asesor. Por favor espera un momento...");
-        // Aquí se activaría la lógica de handoff real (tagging, status change)
-        // Pero eso se maneja en el webhook antes de llamar aquí si detecta intención
-        // En este caso, es una selección explícita de botón.
-        return;
+  if (Array.isArray(flow.nodes)) {
+    const nodeMap = buildNodeMap(flow);
+    const session = await sessionStore.getSession(waId, getCurrentLineId());
+    const sessionFlowId = session.data?.flow_id;
+    const currentNode =
+      sessionFlowId === flow.id ? nodeMap.get(session.state) : null;
+    let nextId = selectionId;
+    if (currentNode && Array.isArray(currentNode.buttons)) {
+      const found = currentNode.buttons.find((btn) => btn.next === selectionId);
+      if (found && found.next) {
+        nextId = found.next;
+      }
     }
 
-    // Si no reconocemos la acción, volvemos al menú
-    return sendMainMenu(waId, flow);
+    const target = nodeMap.get(nextId);
+    if (target) {
+      await sendNode(waId, flow, target, new Set([nextId]));
+      return;
+    }
+
+    const startNodeId = getStartNodeId(flow);
+    if (startNodeId && nodeMap.has(startNodeId)) {
+      await sendNode(waId, flow, nodeMap.get(startNodeId), new Set([startNodeId]));
+    }
+    return;
+  }
+
+  // Flow simple con mainMenu
+  if (selectionId === "HANDOFF") {
+    await sendText(waId, "Te estamos conectando con un asesor. Por favor espera un momento...");
+    return;
+  }
+  return sendMainMenu(waId, flow);
 }
 
 /**
- * Envía el menú principal definido en el flow
+ * Envia el menu principal definido en el flow
  */
 async function sendMainMenu(waId, flow) {
-    if (!flow.mainMenu) {
-        logger.warn("flow.missing_main_menu", { flowId: flow.id });
-        return sendText(waId, "Hola! (Menú no configurado)");
+  if (!flow.mainMenu) {
+    logger.warn("flow.missing_main_menu", { flowId: flow.id });
+    return sendText(waId, "Hola! (Menu no configurado)");
+  }
+
+  const { body, button, sections } = flow.mainMenu;
+  const processedBody = (body || "").replace(
+    "{{brand_name}}",
+    "nuestro negocio"
+  );
+
+  if (sections && sections.length > 0) {
+    try {
+      await sendList(waId, null, processedBody, null, button || "Ver menu", sections);
+    } catch (err) {
+      logger.error("flow.send_menu_failed", { error: err.message });
+      await sendText(waId, processedBody);
     }
-
-    const { body, button, sections } = flow.mainMenu;
-
-    // Reemplazar variables básicas
-    const processedBody = body.replace("{{brand_name}}", "nuestro negocio"); // TODO: get from tenant config
-
-    // Si tiene secciones, enviamos lista o botones
-    if (sections && sections.length > 0) {
-        // Si hay POCAS opciones (<= 3) y 1 sección, usar botones
-        // Si hay MÁS, usar lista.
-        // Por simplicidad, usemos el método sendInteractive que ya abstrae o hace lista.
-
-        // Convertir formato de flow a formato esperado por sendInteractive
-        // sendInteractive espera: (waId, bodyText, sections, title)
-        // flow.sections tiene la estructura correcta: [{title, rows: [{id, title, description}]}]
-
-        try {
-            await sendInteractive(waId, processedBody, sections, button || "Ver menú");
-        } catch (err) {
-            logger.error("flow.send_menu_failed", { error: err.message });
-            await sendText(waId, processedBody); // Fallback
-        }
-    } else {
-        // Solo texto
-        await sendText(waId, processedBody);
-    }
+  } else {
+    await sendText(waId, processedBody || "Hola!");
+  }
 }
 
 module.exports = {
-    executeDynamicFlow,
-    executeDynamicInteractive
+  executeDynamicFlow,
+  executeDynamicInteractive,
 };
